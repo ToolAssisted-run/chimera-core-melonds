@@ -46,7 +46,7 @@ melonDS 1.1 (tag `1.1`, commit b86390e, 2025-11-18), from its source.
 | 1 | Native build; a game boots | Picture, sound, a press changes the run | done 2026-10-13 |
 | 2 | The same in the sandbox | Native and sandbox give the same digests; savestates | done 2026-10-13 |
 | 3 | The package: controls, settings, screens | Chimera's package checks; a project in Chimera's engine and window | done 2026-10-13 except the window: see "What step 3 decided" |
-| 4 | Touch screen, microphone, lid; save data; the clock | Tests for each | |
+| 4 | Touch screen, microphone, lid; save data; the clock | Tests for each | done 2026-10-13: see "The tests" |
 | 5 | The DSi | A DSi game boots with the owner's BIOS files | |
 | 6 | Tests on a self-made program, Windows, documents, CI | The test script on a runner | |
 | 7 | Publishing | The owner's word | |
@@ -109,3 +109,44 @@ screens swapped it is 384x256.
 `tests/make-project.py` kept one press for each control (the last one
 given). It now keeps them all. The copy in the Mednafen core has the same
 fault.
+
+## The tests (2026-10-13)
+
+**A program of the tests' own.** No game may be put in the repository or on
+a CI runner, and the DS needs no BIOS here, so `tests/make-nds-program.py`
+assembles a small DS program from a handful of ARM instructions written out
+in the script. Its main processor copies the buttons to memory, counts, and
+paints both screens; its second processor starts a tone, copies the second
+button register (X, Y, the pen, the lid), and asks the touch screen's chip
+for the pen's place and the microphone's level. So every control is tested
+with no game: each of the twelve buttons clears its own bit and no other,
+the pen held at three quarters across and a quarter down reads as pixel
+192,48, the lid and the pen show in the register, and the microphone reads
+silence at volume 0 and noise at 100.
+
+**The test script**, `waterbox/run-gate.sh`: 34 tests with every file and
+Chimera's engine, 34 passed, in about a minute and a half. 18 of them need
+no file of anyone's. With New Super Mario Bros.: the game runs, native and
+sandbox give the same digests with presses, the three savestate tests, lag
+frames (226 of 1,500), the cartridge's save memory out and in, the Language
+setting, the console's own BIOS, the console's menu, and the Starting Clock
+(the menu shows the date). With Kirby: Canvas Curse: the pen changes the
+run, and the pen in another place changes it again. In Chimera's engine a
+project of the program, of the game, and of the game started from the
+console's menu each leave the Main RAM the sandbox runner leaves.
+
+**The window test**, `tests/run-frontend.sh`: 5 passed. In Chimera's window
+the program and the game leave the headless runner's Main RAM, the keys are
+taken up, a project that needs the console's files is refused without them
+(a file is named), and opens with them from Chimera's firmware.
+
+**Broken on purpose once**: with the pen's place ignored, the lid ignored,
+no noise from the microphone, every frame said to have read the buttons,
+the gap ignored, the language ignored, the save file not loaded, A and B
+exchanged and the clock setting ignored, ten tests failed: `nds:buttons`,
+`nds:pen-and-lid`, `nds:microphone`, `nds:lag`, `nds:layouts`, `game:lag`,
+`game:save-data`, `game:language`, `bios:clock` and `pen:game`.
+
+A trap for whoever writes the next test: the program keeps no trace of a
+press that is over, so a test that compares memory at the end has to hold
+the button to the end.
