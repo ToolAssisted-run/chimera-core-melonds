@@ -1,0 +1,66 @@
+{
+  "package": "melonds",
+  "effectiveTerms": "GPL-3.0-or-later",
+  "commercialUse": "allowed under the GPL",
+  "note": "The core is melonDS 1.1 (GPL-3.0-or-later): its Nintendo DS machine with the interpreter and the software renderers, with this repository's integration (MIT). The program is distributed under the GPL version 3 or later. Compiled in from melonDS's own tree: the free replacement BIOS by Gilead Kutnick (two-clause BSD, carried in this package), Teakra, the DSi's sound processor (MIT), FatFs by ChaN (its own one-clause BSD-style licence), blip_buf by Shay Green (LGPL-2.1-or-later, conveyed here under the GPL as its section 3 allows), xxHash by Yann Collet (BSD-2-Clause), tiny-AES-c (public domain, the Unlicense) and a SHA-1 implementation in the public domain. The package contains no game and no BIOS or firmware of Nintendo's: the user supplies them.",
+  "components": [
+    {
+      "name": "chimera-core-melonds (integration)",
+      "license": "MIT, and GPL-3.0-or-later for patches/",
+      "url": "https://github.com/ToolAssisted-run/chimera-core-melonds",
+      "commit": "{selfCommit}",
+      "file": "LICENSE",
+      "sourceUrl": "https://github.com/ToolAssisted-run/chimera-core-melonds/archive/{commit}.tar.gz"
+    },
+    {
+      "name": "melonDS 1.1",
+      "license": "GPL-3.0-or-later",
+      "url": "https://melonds.kuribo64.net/",
+      "commit": "{submodule:extern/melonDS}",
+      "file": "extern/melonDS/LICENSE",
+      "sourceUrl": "https://github.com/melonDS-emu/melonDS/archive/{commit}.tar.gz"
+    },
+    {
+      "name": "Custom NDS BIOS replacement (in melonDS)",
+      "license": "BSD-2-Clause",
+      "url": "https://github.com/melonDS-emu/melonDS/tree/master/freebios",
+      "file": "extern/melonDS/freebios/drastic_bios_readme.txt"
+    },
+    {
+      "name": "Teakra (in melonDS)",
+      "license": "MIT",
+      "url": "https://github.com/wwylele/teakra",
+      "file": "extern/melonDS/src/teakra/LICENSE"
+    },
+    {
+      "name": "FatFs (in melonDS)",
+      "license": "FatFs licence (BSD-1-Clause style)",
+      "url": "http://elm-chan.org/fsw/ff/",
+      "file": "extern/melonDS/src/fatfs/LICENSE.txt"
+    },
+    {
+      "name": "blip_buf (in melonDS)",
+      "license": "LGPL-2.1-or-later",
+      "url": "https://www.slack.net/~ant/",
+      "file": "extern/melonDS/src/blip-buf/license.txt"
+    },
+    {
+      "name": "tiny-AES-c (in melonDS)",
+      "license": "Unlicense",
+      "url": "https://github.com/kokke/tiny-AES-c",
+      "file": "extern/melonDS/src/tiny-AES-c/unlicense.txt"
+    },
+    {
+      "name": "xxHash (in melonDS)",
+      "license": "BSD-2-Clause",
+      "url": "https://github.com/Cyan4973/xxHash",
+      "file": "extern/melonDS/src/xxhash/xxhash.h"
+    },
+    {
+      "name": "SHA-1 (in melonDS)",
+      "license": "public domain",
+      "url": "https://github.com/clibs/sha1",
+      "file": "extern/melonDS/src/sha1/sha1.c"
+    }
+  ]
+}

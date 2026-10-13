@@ -45,7 +45,7 @@ melonDS 1.1 (tag `1.1`, commit b86390e, 2025-11-18), from its source.
 |---|---|---|---|
 | 1 | Native build; a game boots | Picture, sound, a press changes the run | done 2026-10-13 |
 | 2 | The same in the sandbox | Native and sandbox give the same digests; savestates | done 2026-10-13 |
-| 3 | The package: controls, settings, screens | Chimera's package checks; a project in Chimera's engine and window | |
+| 3 | The package: controls, settings, screens | Chimera's package checks; a project in Chimera's engine and window | done 2026-10-13 except the window: see "What step 3 decided" |
 | 4 | Touch screen, microphone, lid; save data; the clock | Tests for each | |
 | 5 | The DSi | A DSi game boots with the owner's BIOS files | |
 | 6 | Tests on a self-made program, Windows, documents, CI | The test script on a runner | |
@@ -62,5 +62,50 @@ melonDS 1.1 (tag `1.1`, commit b86390e, 2025-11-18), from its source.
   1,200 frames with presses of A and Start. A state saved and loaded before
   every frame, a state moved to a new sandbox half way, and a state kept at
   frame 600 and loaded at frame 900 change nothing.
-- The sound is asked for at 48 kHz. The DS mixes at about 32.7 kHz and
-  melonDS converts; whether to hand out the DS's own rate is open.
+- The sound was first asked for at 48 kHz; step 3 settled the rate.
+
+## What step 3 decided (2026-10-13)
+
+- **System id `NDS`, "Nintendo DS".** One machine for now; the DSi will be a
+  second one.
+- **The sound is handed out at the DS's own rate**: one stereo pair every
+  512 cycles of the second processor, 32,728.5 a second, about 547 a frame.
+  melonDS is asked for exactly that rate, so it converts nothing. The 3DS
+  core does the same with the same number. The machine's memory does not
+  depend on the rate asked for (the same RAM digest at 48 kHz and at this
+  rate).
+- **Controls**: Up, Down, Left, Right, Start, Select, B, A, Y, X, L, R,
+  Touch and Lid Closed, and three axes. Touch X and Touch Y are a fraction of
+  the lower screen from 0 to 65535, as every pointer in Chimera's newer
+  cores is; the core turns them into the screen's 256x192 pixels. Mic Volume
+  is 0 to 100: the microphone hears noise that loud, from a generator kept
+  in the machine's memory, and silence at 0.
+- **The two screens are one picture**, laid out by settings that change the
+  picture only: Screen Layout (stacked, side-by-side, top, bottom), Swap
+  Screens, Screen Gap (0 to 192 pixels) and Rotation (0, 90, 180, 270). The
+  machine's memory is the same under every layout.
+- **BIOS: free by default, the console's own as a setting.** With "original"
+  the project needs bios7.bin, bios9.bin (both known by their SHA-1) and
+  firmware.bin, and "Start With" can then be the console's menu. With the
+  free BIOS a game is started directly.
+- **Language** is a setting, written into the firmware's user settings,
+  also over a firmware file's own. The touch screen's calibration needs no
+  care: melonDS overwrites it with its own in any firmware.
+- **The clock** starts at a time the project sets (Starting Clock), the
+  first of January 2000 by default.
+- **Save data**: the cartridge's save memory goes out as `nds.sav` and a
+  project's Save data slot takes a `.sav` file.
+
+What was measured: Chimera's package checks pass (18 of 18). A project of
+New Super Mario Bros. plays a 1,200-frame movie with presses in Chimera's
+headless runner in 3.2 seconds and leaves the same Main RAM as the sandbox
+runner given the same presses (a movie's row N is the test runner's frame
+N+1), and another RAM than the idle movie. Kirby: Canvas Curse plays its
+opening. With the owner's BIOS and firmware files the console's menu comes
+up, with the game in it and the clock on the first of January 2000. Side by
+side with a gap of 32 the picture is 544x192; turned a quarter with the
+screens swapped it is 384x256.
+
+`tests/make-project.py` kept one press for each control (the last one
+given). It now keeps them all. The copy in the Mednafen core has the same
+fault.

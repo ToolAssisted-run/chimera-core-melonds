@@ -1,0 +1,27 @@
+{
+ "_comment": "This file lists the kinds of file a project of this core can hold. Chimera's New Project window is built from it. Each kind is called a slot. A project file records its files under the slot ids used here.",
+ "slots": [
+  {
+   "id": "cart",
+   "title": "Game",
+   "min": 1,
+   "max": 1,
+   "formats": [
+    "nds"
+   ],
+   "help": "The game's cartridge, a .nds file. A game stored as a zip has to be unpacked first."
+  },
+  {
+   "id": "savedata",
+   "title": "Save data",
+   "min": 0,
+   "max": 1,
+   "formats": [
+    "sav"
+   ],
+   "help": "What the cartridge's save memory holds at the start, for a project that begins from a saved game: a .sav file, as Emulator > Export Save Data... writes it and as melonDS, DeSmuME (raw saves) and BizHawk keep it. The file is never changed. Leave this empty to start with an empty cartridge.",
+   "namePattern": "\\.sav$",
+   "nameHelp": "a save file is identified by its extension, .sav."
+  }
+ ]
+}

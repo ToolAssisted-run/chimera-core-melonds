@@ -15,6 +15,7 @@
 #include "SPU.h"
 #include "RTC.h"
 #include "Args.h"
+#include "SPI_Firmware.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -40,29 +41,52 @@ char g_loadError[1024];
 NDS *g_nds;
 bool g_stopped;
 
-// ---- the picture: the two screens, one above the other -----------------------
+// ---- the picture -----------------------------------------------------------------
+// The machine has two screens of 256x192. They are put into one picture the
+// way the project's settings say: one above the other as the console has
+// them (the default), side by side, or one alone; with a gap between them
+// like the console's hinge; exchanged; and turned, for the games that are
+// held like a book. None of it reaches the machine.
 constexpr int kScreenW = 256, kScreenH = 192;
-std::vector<uint32_t> g_picture(size_t(kScreenW) * kScreenH * 2);
+enum { kStacked, kSideBySide, kTopOnly, kBottomOnly };
+int g_layout = kStacked;
+int g_gap;                        // pixels between the two screens
+bool g_swap;                      // the lower screen first
+int g_turn;                       // quarter turns clockwise
+int g_canvasW, g_canvasH;         // the picture before it is turned
+int g_placeX[2], g_placeY[2];     // where each screen goes in it (-1: not shown)
+int g_width, g_height;            // the picture handed out
+std::vector<uint32_t> g_canvas, g_picture;
 bool g_render = true;
 
 // ---- the sound -----------------------------------------------------------------
-constexpr int kSampleRate = 48000;
+// The DS mixes one stereo pair every 512 cycles of its second processor:
+// 16,756,991 / 512 = 32,728.5 pairs a second. They are handed out at that
+// rate, about 547 a frame, so nothing is converted to another rate.
+constexpr double kSampleRate = 16756991.0 / 512.0;
 constexpr int kMaxSamples = 2048;
 ECL_INVISIBLE int16_t g_audio[kMaxSamples * 2];
 int g_audioFrames;
 
 // ---- the controls --------------------------------------------------------------
-// The twelve buttons in the order of the machine's key register (a bit is 0
-// while its button is held), then the pen on the lower screen and the lid.
+// The twelve buttons, each with its bit in the machine's key register (a bit
+// is 0 while its button is held), then the pen on the lower screen and the lid.
 enum { kTouch = 12, kLid = 13, kButtons = 14 };
-const char *const kButtonNames[kButtons] = {
-	"A", "B", "Select", "Start", "Right", "Left", "Up", "Down", "R", "L", "X", "Y", "Touch", "Lid Closed",
+const struct { const char *name; int bit; } kButtonTable[kButtons] = {
+	{ "Up", 6 }, { "Down", 7 }, { "Left", 5 }, { "Right", 4 }, { "Start", 3 }, { "Select", 2 },
+	{ "B", 1 }, { "A", 0 }, { "Y", 11 }, { "X", 10 }, { "L", 9 }, { "R", 8 },
+	{ "Touch", -1 }, { "Lid Closed", -1 },
 };
 bool g_held[kButtons];
-enum { kTouchX, kTouchY, kAxes };
-const char *const kAxisNames[kAxes] = { "Touch X", "Touch Y" };
-int g_axis[kAxes] = { kScreenW / 2, kScreenH / 2 };
+// The pen's place is a fraction of the lower screen, 0 to 65535 each way, as
+// every pointer in Chimera is; the microphone is how loud a noise it hears.
+enum { kTouchX, kTouchY, kMic, kAxes };
+const char *const kAxisNames[kAxes] = { "Touch X", "Touch Y", "Mic Volume" };
+int g_axis[kAxes] = { 32768, 32768, 0 };
 bool g_inputRead;
+// the noise the microphone hears: a generator of the machine's own, so that a
+// savestate holds where it is
+uint32_t g_noise = 0x2545F491;
 
 // ---- the memory ----------------------------------------------------------------
 struct memory_area
@@ -127,6 +151,58 @@ struct save_file
 };
 std::vector<save_file> g_saveFiles;   // what the last export listed
 
+bool setting_text(const char *name, std::string &value)
+{
+	char val[128];
+	if (wbx_setting_str(name, val, sizeof val) <= 0) return false;
+	value = val;
+	return true;
+}
+bool setting_on(const char *name)
+{
+	std::string v;
+	return setting_text(name, v) && (v[0] == 't' || v[0] == 'T' || (v[0] >= '1' && v[0] <= '9'));
+}
+int setting_number(const char *name, int otherwise, int low, int high)
+{
+	std::string v;
+	if (!setting_text(name, v)) return otherwise;
+	return std::min(std::max(int(strtol(v.c_str(), nullptr, 10)), low), high);
+}
+
+// where the two screens go, from the project's settings
+void lay_out_screens()
+{
+	std::string layout = "stacked";
+	setting_text("layout", layout);
+	g_layout = layout == "side-by-side" ? kSideBySide : layout == "top" ? kTopOnly : layout == "bottom" ? kBottomOnly : kStacked;
+	g_gap = setting_number("screen_gap", 0, 0, 192);
+	g_swap = setting_on("swap_screens");
+	g_turn = setting_number("rotation", 0, 0, 270) / 90;
+
+	int const first = g_swap ? 1 : 0, second = 1 - first;
+	g_placeX[0] = g_placeY[0] = g_placeX[1] = g_placeY[1] = -1;
+	switch (g_layout)
+	{
+	case kTopOnly: g_canvasW = kScreenW; g_canvasH = kScreenH; g_placeX[0] = g_placeY[0] = 0; break;
+	case kBottomOnly: g_canvasW = kScreenW; g_canvasH = kScreenH; g_placeX[1] = g_placeY[1] = 0; break;
+	case kSideBySide:
+		g_canvasW = kScreenW * 2 + g_gap; g_canvasH = kScreenH;
+		g_placeX[first] = 0; g_placeY[first] = 0;
+		g_placeX[second] = kScreenW + g_gap; g_placeY[second] = 0;
+		break;
+	default:
+		g_canvasW = kScreenW; g_canvasH = kScreenH * 2 + g_gap;
+		g_placeX[first] = 0; g_placeY[first] = 0;
+		g_placeX[second] = 0; g_placeY[second] = kScreenH + g_gap;
+		break;
+	}
+	g_canvas.assign(size_t(g_canvasW) * g_canvasH, 0xFF000000);
+	g_width = (g_turn & 1) ? g_canvasH : g_canvasW;
+	g_height = (g_turn & 1) ? g_canvasW : g_canvasH;
+	g_picture.assign(size_t(g_width) * g_height, 0xFF000000);
+}
+
 void take_picture()
 {
 	// the machine draws into one of two pairs of buffers and shows the other
@@ -134,14 +210,57 @@ void take_picture()
 	for (int screen = 0; screen < 2; screen++)
 	{
 		const u32 *src = g_nds->GPU.Framebuffer[front][screen].get();
-		if (src) memcpy(&g_picture[size_t(screen) * kScreenW * kScreenH], src, size_t(kScreenW) * kScreenH * 4);
+		if (!src || g_placeX[screen] < 0) continue;
+		for (int y = 0; y < kScreenH; y++)
+			memcpy(&g_canvas[size_t(g_placeY[screen] + y) * g_canvasW + g_placeX[screen]], src + size_t(y) * kScreenW, size_t(kScreenW) * 4);
 	}
+	if (g_turn == 0)
+	{
+		memcpy(g_picture.data(), g_canvas.data(), g_canvas.size() * 4);
+		return;
+	}
+	for (int y = 0; y < g_canvasH; y++)
+		for (int x = 0; x < g_canvasW; x++)
+		{
+			uint32_t const pixel = g_canvas[size_t(y) * g_canvasW + x];
+			if (g_turn == 1) g_picture[size_t(x) * g_width + (g_canvasH - 1 - y)] = pixel;            // a quarter turn clockwise
+			else if (g_turn == 2) g_picture[size_t(g_canvasH - 1 - y) * g_width + (g_canvasW - 1 - x)] = pixel;
+			else g_picture[size_t(g_canvasW - 1 - x) * g_width + y] = pixel;                          // three quarters
+		}
+}
+
+// The firmware's user settings a game can read: the language. The rest stays
+// as melonDS writes it (the name "melonDS", a birthday, a favourite colour).
+void set_firmware_language(Firmware &firmware)
+{
+	static const char *const kLanguages[] = { "japanese", "english", "french", "german", "italian", "spanish" };
+	std::string language = "english";
+	setting_text("language", language);
+	for (int i = 0; i < 6; i++)
+		if (language == kLanguages[i])
+		{
+			auto &user = firmware.GetEffectiveUserData();
+			user.Settings = u16((user.Settings & ~Firmware::Language::Reserved) | i);
+		}
+	firmware.UpdateChecksums();
 }
 
 } // namespace
 
 void frontend_stopped(int) { g_stopped = true; }
-int frontend_mic(int16_t *, int) { return 0; }
+
+// The microphone hears noise as loud as the Mic Volume control says, and
+// silence at 0: enough for the games that are blown or shouted at.
+int frontend_mic(int16_t *data, int max)
+{
+	int const volume = g_axis[kMic];
+	for (int i = 0; i < max; i++)
+	{
+		g_noise = g_noise * 1664525u + 1013904223u;
+		data[i] = int16_t((int32_t(int16_t(g_noise >> 16)) * volume) / 100);
+	}
+	return max;
+}
 
 extern "C" {
 
@@ -183,12 +302,48 @@ ECL_EXPORT int Init(void)
 		return 0;
 	}
 
-	// the machine: the interpreter, the software renderer on this thread, the
-	// free BIOS melonDS carries and the firmware it writes for itself
+	// the machine: the interpreter, the software renderer on this thread, and
+	// by default the free BIOS melonDS carries and the firmware it writes for
+	// itself. With the BIOS setting on "original" the console's own three
+	// files are the project's firmware.
 	NDSArgs args;
 	args.JIT = std::nullopt;
 	args.Renderer3D = std::make_unique<SoftRenderer>();
 	args.OutputSampleRate = kSampleRate;
+	std::string bios = "free", boot = "game";
+	setting_text("bios", bios);
+	setting_text("boot", boot);
+	bool const original = bios == "original";
+	if (original)
+	{
+		std::vector<uint8_t> bios7, bios9, firmware;
+		if (!read_file("bios7.bin", bios7) || bios7.size() != ARM7BIOSSize
+			|| !read_file("bios9.bin", bios9) || bios9.size() != ARM9BIOSSize)
+		{
+			snprintf(g_loadError, sizeof g_loadError, "the console's BIOS files could not be read: bios7.bin has to be %u bytes and bios9.bin %u", unsigned(ARM7BIOSSize), unsigned(ARM9BIOSSize));
+			return 0;
+		}
+		if (!read_file("firmware.bin", firmware) || firmware.empty())
+		{
+			snprintf(g_loadError, sizeof g_loadError, "the console's firmware file (firmware.bin) could not be read");
+			return 0;
+		}
+		memcpy(args.ARM7BIOS->data(), bios7.data(), ARM7BIOSSize);
+		memcpy(args.ARM9BIOS->data(), bios9.data(), ARM9BIOSSize);
+		args.Firmware = Firmware(firmware.data(), u32(firmware.size()));
+		if (!args.Firmware.Buffer())
+		{
+			snprintf(g_loadError, sizeof g_loadError, "firmware.bin is not a Nintendo DS firmware: it has to be 128, 256 or 512 KB");
+			return 0;
+		}
+	}
+	else if (boot == "firmware")
+	{
+		snprintf(g_loadError, sizeof g_loadError, "starting from the console's menu needs the console's own BIOS: set BIOS to 'original', or Start With to 'game'");
+		return 0;
+	}
+	set_firmware_language(args.Firmware);
+	lay_out_screens();
 	g_nds = new NDS(std::move(args), nullptr);
 	g_nds->SetNDSCart(std::move(cart));
 	g_nds->Reset();
@@ -201,7 +356,7 @@ ECL_EXPORT int Init(void)
 	gmtime_r(&start, &when);
 	g_nds->RTC.SetDateTime(when.tm_year + 1900, when.tm_mon + 1, when.tm_mday, when.tm_hour, when.tm_min, when.tm_sec);
 
-	if (g_nds->NeedsDirectBoot())
+	if (boot != "firmware" || g_nds->NeedsDirectBoot())
 	{
 		size_t const slash = files[0].find_last_of('/');
 		g_nds->SetupDirectBoot(slash == std::string::npos ? files[0] : files[0].substr(slash + 1));
@@ -215,7 +370,7 @@ ECL_EXPORT int Init(void)
 }
 
 ECL_EXPORT int GetButtonCount(void) { return kButtons; }
-ECL_EXPORT const char *GetButtonName(int32_t i) { return i >= 0 && i < kButtons ? kButtonNames[i] : ""; }
+ECL_EXPORT const char *GetButtonName(int32_t i) { return i >= 0 && i < kButtons ? kButtonTable[i].name : ""; }
 ECL_EXPORT int IsButtonActive(int32_t i) { return i >= 0 && i < kButtons; }
 ECL_EXPORT void SetButton(int32_t i, int32_t state)
 {
@@ -227,8 +382,8 @@ ECL_EXPORT const char *GetAxisName(int32_t i) { return i >= 0 && i < kAxes ? kAx
 ECL_EXPORT int IsAxisActive(int32_t i) { return i >= 0 && i < kAxes; }
 ECL_EXPORT void SetAxis(int32_t i, int32_t value)
 {
-	if (i == kTouchX) g_axis[i] = std::min(std::max(value, 0), kScreenW - 1);
-	if (i == kTouchY) g_axis[i] = std::min(std::max(value, 0), kScreenH - 1);
+	if (i == kTouchX || i == kTouchY) g_axis[i] = std::min(std::max(value, 0), 65535);
+	if (i == kMic) g_axis[i] = std::min(std::max(value, 0), 100);
 }
 
 ECL_EXPORT void FrameAdvance(uint64_t)
@@ -236,9 +391,10 @@ ECL_EXPORT void FrameAdvance(uint64_t)
 	if (!g_nds) return;
 	u32 mask = 0xFFF;
 	for (int i = 0; i < 12; i++)
-		if (g_held[i]) mask &= ~(1u << i);
+		if (g_held[i]) mask &= ~(1u << kButtonTable[i].bit);
 	g_nds->SetKeyMask(mask);
-	if (g_held[kTouch]) g_nds->TouchScreen(u16(g_axis[kTouchX]), u16(g_axis[kTouchY]));
+	// the pen: a fraction of the lower screen, turned into its pixels
+	if (g_held[kTouch]) g_nds->TouchScreen(u16(g_axis[kTouchX] * kScreenW / 65536), u16(g_axis[kTouchY] * kScreenH / 65536));
 	else g_nds->ReleaseScreen();
 	g_nds->SetLidClosed(g_held[kLid]);
 
@@ -255,8 +411,14 @@ ECL_EXPORT int InputWasRead(void) { return g_inputRead ? 1 : 0; }
 ECL_EXPORT void SetRenderingEnabled(int on) { g_render = on != 0; }
 
 ECL_EXPORT uint32_t *GetVideoBgra(void) { return g_picture.data(); }
-ECL_EXPORT int GetVideoWidth(void) { return kScreenW; }
-ECL_EXPORT int GetVideoHeight(void) { return kScreenH * 2; }
+ECL_EXPORT int GetVideoWidth(void) { return g_width; }
+ECL_EXPORT int GetVideoHeight(void) { return g_height; }
+// the DS's pixels are square: the picture's shape is its size
+ECL_EXPORT int GetDisplayAspectX(void) { return g_width ? g_width : kScreenW; }
+ECL_EXPORT int GetDisplayAspectY(void) { return g_height ? g_height : kScreenH * 2; }
+// 33,513,982 cycles a second and 560,190 a frame: 59.8261 frames a second
+ECL_EXPORT int GetVsyncNumerator(void) { return 59826; }
+ECL_EXPORT int GetVsyncDenominator(void) { return 1000; }
 
 ECL_EXPORT int16_t *GetAudio(void) { return g_audio; }
 ECL_EXPORT int GetAudioSampleCount(void) { return g_audioFrames; }
