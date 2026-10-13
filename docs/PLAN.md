@@ -47,7 +47,7 @@ melonDS 1.1 (tag `1.1`, commit b86390e, 2025-11-18), from its source.
 | 2 | The same in the sandbox | Native and sandbox give the same digests; savestates | done 2026-10-13 |
 | 3 | The package: controls, settings, screens | Chimera's package checks; a project in Chimera's engine and window | done 2026-10-13 except the window: see "What step 3 decided" |
 | 4 | Touch screen, microphone, lid; save data; the clock | Tests for each | done 2026-10-13: see "The tests" |
-| 5 | The DSi | A DSi game boots with the owner's BIOS files | |
+| 5 | The DSi | A DSi game boots with the owner's BIOS files | done 2026-10-13: see "The DSi" |
 | 6 | Tests on a self-made program, Windows, documents, CI | The test script on a runner | |
 | 7 | Publishing | The owner's word | |
 
@@ -150,3 +150,58 @@ exchanged and the clock setting ignored, ten tests failed: `nds:buttons`,
 A trap for whoever writes the next test: the program keeps no trace of a
 press that is over, so a test that compares memory at the end has to hold
 the button to the end.
+
+## The DSi (2026-10-13)
+
+The DSi is a second machine of the package: the Machine setting is `nds` or
+`dsi`, and the system ids are `NDS` and `DSI`. The controls are the same.
+
+**What it needs**: the DSi's two BIOS files (`bios7i.bin`, `bios9i.bin`,
+64 KB each), its firmware (`dsi_firmware.bin`, 128 KB) and a NAND image
+(`dsi_nand.bin`, 240 MB), all as the project's firmware. The key the NAND
+is locked with is in the second processor's BIOS, so the files have to come
+from one console. The DS side of a DSi starts with the free BIOS or the DS's
+own, as the BIOS setting says.
+
+**The NAND stays in memory.** A DSi reads and writes its NAND while it runs,
+and melonDS does that through an open file. The sandbox keeps no file's
+contents or position in a savestate, and a core writes nothing to the user's
+files. So the core reads the NAND whole into the machine's memory when the
+machine is built, and `waterbox/platform.cpp` reads and writes it there. It
+is in the baseline every savestate starts from, so it adds to a state only
+the pages the machine changed. The user's file is never written to
+(`dsi:nand-untouched`).
+
+**What the core writes into its copy** when the machine is built, as
+melonDS's own program does to the file it is pointed at: the Language
+setting, and the touch screen's calibration that melonDS works with. It
+then reads them back and refuses to start if they did not take. That check
+exists because a test showed the gap: with the machine's writes to the NAND
+dropped on purpose, no test failed.
+
+**Start With**: `game` starts the cartridge at once, in DSi mode when the
+cartridge is a DSi one. `firmware` starts the DSi's own system from the
+NAND. The owner's NAND image was never set up, so its system asks for its
+settings first.
+
+**The sound processor** of the DSi is run by melonDS's own code for its
+known programs (melonDS's default), not by the Teakra interpreter, which is
+linked all the same.
+
+What was measured, with the owner's files and Dragon's Lair (USA): the game
+starts in 1,200 frames (5.9 seconds natively, 6.6 in the sandbox, most of it
+reading the NAND). Native and sandbox give the same 24 digests with presses;
+a state saved and loaded every frame (14 seconds for 1,200 frames), a state
+moved to a new sandbox, and a rewind change nothing. Started from the DSi's
+system, native and sandbox agree as well. In Chimera's engine a DSi project
+with the four files as firmware leaves the sandbox runner's Main RAM
+(16 MB), and Chimera's window opens it from Chimera's firmware settings.
+
+Counts: the test script 44 passed, 0 failed, 0 skipped with every file and
+Chimera's engine (2 minutes 43 seconds); the window test 6 passed; Chimera's
+package checks 18 of 18.
+
+**Not done for the DSi**: games sold only in the DSi's shop (DSiWare), which
+have to be installed into the NAND; the cameras (they show black); the SD
+card; and the language and calibration written into the NAND have only the
+read-back check, not a game that shows them.

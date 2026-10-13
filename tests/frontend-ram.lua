@@ -48,7 +48,7 @@ meta.metaPath = job.meta
 
 -- this core's system
 local sysid = emu.getsystemid()
-if sysid ~= "NDS" then
+if sysid ~= "NDS" and sysid ~= "DSI" then
 	finish("ERROR", "wrong system id: " .. tostring(sysid))
 end
 if emu.getcorename() ~= "melonDS" then

@@ -10,4 +10,9 @@ void frontend_stopped(int reason);
 // the microphone's samples for the machine: fills up to "max" and returns how many
 int frontend_mic(int16_t *data, int max);
 
+// A file the machine reads AND writes while it runs (the DSi's NAND) is kept
+// in the machine's memory, where a savestate holds it: true, with where it
+// is and how long, when "name" is such a file.
+bool frontend_memory_file(const char *name, uint8_t **data, uint64_t *size);
+
 #endif

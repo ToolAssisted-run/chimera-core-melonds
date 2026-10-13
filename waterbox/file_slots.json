@@ -9,7 +9,7 @@
    "formats": [
     "nds"
    ],
-   "help": "The game's cartridge, a .nds file. A game stored as a zip has to be unpacked first."
+   "help": "The game's cartridge, a .nds file. A game stored as a zip has to be unpacked first. A game sold only in the DSi's shop (DSiWare) is not a cartridge and cannot be started this way."
   },
   {
    "id": "savedata",

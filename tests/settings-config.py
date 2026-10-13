@@ -7,7 +7,7 @@ The settings are stored the way Chimera's settings window stores them: a map
 of name to value under the adapter's type name. The firmware is a map of a
 firmware id ("bios7.bin") to a file, stored the way the Firmware
 window stores it, under this core's name. The core is also made the one
-Chimera picks for the Nintendo DS, because the Cores folder may hold
+Chimera picks for the Nintendo DS and DSi, because the Cores folder may hold
 another.
 """
 import json
@@ -20,5 +20,6 @@ cfg.setdefault("CoreSettings", {})["Chimera.Emulation.Common.Waterbox.WaterboxCo
 firmware = cfg.setdefault("CoreFirmware", {})
 for firmware_id, path in json.loads(sys.argv[4] if len(sys.argv) > 4 else "{}").items():
     firmware["melonDS/" + firmware_id] = path
-cfg.setdefault("DefaultCores", {})["NDS"] = "melonDS"
+for system in ("NDS", "DSI"):
+    cfg.setdefault("DefaultCores", {})[system] = "melonDS"
 json.dump(cfg, open(sys.argv[2], "w"), indent=2)

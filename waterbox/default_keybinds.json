@@ -18,12 +18,30 @@
    "R": "W, J1 B8, X1 RightShoulder",
    "Touch": "",
    "Lid Closed": ""
+  },
+  "Nintendo DSi Controls": {
+   "Up": "Up, J1 POV1U, X1 DpadUp, X1 LStickUp",
+   "Down": "Down, J1 POV1D, X1 DpadDown, X1 LStickDown",
+   "Left": "Left, J1 POV1L, X1 DpadLeft, X1 LStickLeft",
+   "Right": "Right, J1 POV1R, X1 DpadRight, X1 LStickRight",
+   "Start": "Enter, J1 B10, X1 Start",
+   "Select": "Space, J1 B9, X1 Back",
+   "B": "Z, J1 B1, X1 A",
+   "A": "X, J1 B2, X1 B",
+   "Y": "A, J1 B4, X1 X",
+   "X": "S, J1 B5, X1 Y",
+   "L": "Q, J1 B7, X1 LeftShoulder",
+   "R": "W, J1 B8, X1 RightShoulder",
+   "Touch": "",
+   "Lid Closed": ""
   }
  },
  "AllTrollersAutoFire": {
-  "Nintendo DS Controls": {}
+  "Nintendo DS Controls": {},
+  "Nintendo DSi Controls": {}
  },
  "AllTrollersAnalog": {
-  "Nintendo DS Controls": {}
+  "Nintendo DS Controls": {},
+  "Nintendo DSi Controls": {}
  }
 }

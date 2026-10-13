@@ -12,6 +12,10 @@
 # holds a game that is played with the pen (tests/games-local/kirby).
 # NDS_BIOS7, NDS_BIOS9 and NDS_FIRMWARE are the console's own BIOS and
 # firmware files (tests/roms-local/bios7.bin, bios9.bin and firmware.bin).
+# DSI_GAME=<folder> holds a game for the Nintendo DSi, a .nds file
+# (tests/games-local/dsi), and DSI_BIOS7, DSI_BIOS9, DSI_FIRMWARE and DSI_NAND
+# are a DSi's two BIOS files, its firmware and its NAND image
+# (tests/roms-local/bios7i.bin, bios9i.bin, dsi_firmware.bin, dsi_nand.bin).
 #
 # Needs the native build (meson setup build/meson-native ... && ninja) and
 # the sandboxed core (waterbox/setup-guest.sh && ninja -C build/meson-guest):
@@ -25,7 +29,8 @@
 # the microphone), its reads of the buttons are seen, both screens and the
 # sound come out, the screen layouts change the picture and nothing else, and
 # the sandbox gives the native build's results with savestates. The "game:",
-# "pen:" and "bios:" tests need files of yours and say SKIP without them.
+# "pen:", "bios:" and "dsi:" tests need files of yours and say SKIP without
+# them.
 #
 # The ways a test passes on a broken thing (Chimera's docs/gates.md) that
 # these are written against: a machine that did nothing agrees with itself,
@@ -45,6 +50,11 @@ game_pen="${NDS_GAME_PEN:-$root/tests/games-local/kirby}"
 bios7="${NDS_BIOS7:-$root/tests/roms-local/bios7.bin}"
 bios9="${NDS_BIOS9:-$root/tests/roms-local/bios9.bin}"
 firmware="${NDS_FIRMWARE:-$root/tests/roms-local/firmware.bin}"
+dsigame="${DSI_GAME:-$root/tests/games-local/dsi}"
+bios7i="${DSI_BIOS7:-$root/tests/roms-local/bios7i.bin}"
+bios9i="${DSI_BIOS9:-$root/tests/roms-local/bios9i.bin}"
+dsifirmware="${DSI_FIRMWARE:-$root/tests/roms-local/dsi_firmware.bin}"
+dsinand="${DSI_NAND:-$root/tests/roms-local/dsi_nand.bin}"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -82,6 +92,8 @@ folder() {
 }
 # the console's own BIOS and firmware, under the names the package gives them
 console_files() { ln -sf "$bios7" "$work/$1/bios7.bin"; ln -sf "$bios9" "$work/$1/bios9.bin"; ln -sf "$firmware" "$work/$1/firmware.bin"; }
+# a DSi's four files, under the names the package gives them
+dsi_files() { ln -sf "$bios7i" "$work/$1/bios7i.bin"; ln -sf "$bios9i" "$work/$1/bios9i.bin"; ln -sf "$dsifirmware" "$work/$1/dsi_firmware.bin"; ln -sf "$dsinand" "$work/$1/dsi_nand.bin"; }
 nat() { nt_out="$1"; nt_dir="$2"; shift 2; "$native" "$work/$nt_dir" "$@" > "$work/$nt_out.out" 2> "$work/$nt_out.err"; }
 box() { bx_out="$1"; bx_dir="$2"; shift 2; "$runwbx" "$core" "$work/$bx_dir" "$@" > "$work/$bx_out.out" 2> "$work/$bx_out.err"; }
 # repeats <file> <first> <second> <count> <step>: do the report lines from
@@ -120,7 +132,7 @@ done
 check "package:fresh" "core.wbx is not older than its sources${stale:+ (older than:$stale)}" [ -z "$stale" ]
 
 # the buttons and axes the package declares are the ones the core has, in order
-check "package:controls" "the package declares the core's own buttons and axes, in the core's order" \
+check "package:controls" "the package declares the core's own buttons and axes, in the core's order, for both machines" \
 	python3 - "$here/waterbox.config" "$here/cinterface.cpp" <<'PY'
 import json, re, sys
 cfg = json.load(open(sys.argv[1]))
@@ -128,7 +140,7 @@ src = open(sys.argv[2]).read()
 table = src[src.index("kButtonTable[kButtons] = {"):]
 buttons = re.findall(r'\{ "([^"]+)", -?\d+ \}', table[:table.index("};")])
 axes = re.findall(r'"([^"]+)"', re.search(r"kAxisNames\[kAxes\] = \{([^}]*)\}", src).group(1))
-ok = buttons == cfg["input"]["buttons"] and axes == [a["name"] for a in cfg["input"]["axes"]]
+ok = all(buttons == m["input"]["buttons"] and axes == [a["name"] for a in m["input"]["axes"]] for m in cfg["machines"]) and len(cfg["machines"]) == 2
 sys.exit(0 if ok and len(buttons) == 14 and len(axes) == 3 else 1)
 PY
 
@@ -316,6 +328,50 @@ else
 	report "pen:game" SKIP "no Nintendo DS game played with the pen (NDS_GAME_PEN)"
 fi
 
+# ------------------------------------------------- the DSi
+dsi="$(ls "$dsigame"/*.nds 2> /dev/null | head -1)"
+if [ -n "$dsi" ] && [ -f "$bios7i" ] && [ -f "$bios9i" ] && [ -f "$dsifirmware" ] && [ -f "$dsinand" ]; then
+	nand_before="$(sha1sum < "$dsinand")"
+	folder di '{"machine":"dsi"}' "$dsi"; dsi_files di
+	folder di-menu '{"machine":"dsi","boot":"firmware"}' "$dsi"; dsi_files di-menu
+	# Start, A, Start
+	dirun="--frames 1200 --report 50 --press 4:600:5 --press 7:800:5 --press 4:1000:5"
+	nat di-idle di --frames 1200 --report 50
+	nat di di $dirun --dump-domain "Main RAM" "$work/di.ram"
+	box di-box di $dirun
+	for n in di di-idle di-box; do stream "$work/$n.out" > "$work/$n.stream"; done
+	pictures="$(awk '{print $7}' "$work/di.stream" | sort -u | wc -l)"
+	check "dsi:runs" "a DSi with its BIOS files, firmware and NAND image starts the game: $pictures different pictures in 24 reports, and 16 MB of main memory ($(wc -c < "$work/di.ram") bytes)" \
+		[ "$pictures" -gt 5 -a "$(wc -c < "$work/di.ram")" = 16777216 ]
+	check "dsi:pad" "Start and A change the run (the idle run's digests differ)" differ "$work/di.stream" "$work/di-idle.stream"
+	check "dsi:sandbox" "native and sandbox print the same $(wc -l < "$work/di.stream") digests of RAM, picture and sound, with presses" \
+		same "$work/di.stream" "$work/di-box.stream"
+	box di-rerecord di $dirun --rerecord
+	box di-session di $dirun --session
+	box di-rewind di --frames 1200 --report 5 --press 4:300:5 --press 7:500:5 --rewind
+	stream "$work/di-rerecord.out" > "$work/di-rerecord.stream"
+	stream "$work/di-session.out" > "$work/di-session.stream"
+	check "dsi:state-every-frame" "a state saved and loaded every frame changes nothing" same "$work/di-box.stream" "$work/di-rerecord.stream"
+	check "dsi:state-other-box" "a state moved to a new sandbox half way changes nothing" same "$work/di-box.stream" "$work/di-session.stream"
+	check "dsi:state-rewind" "a state kept at frame 600 and loaded at 900: the frames after the load repeat those after the save" \
+		repeats "$work/di-rewind.out" 600 900 300 5
+	nat di-menu di-menu --frames 900 --report 50
+	box di-menu-box di-menu --frames 900 --report 50
+	stream "$work/di-menu.out" > "$work/di-menu.stream"; stream "$work/di-menu-box.out" > "$work/di-menu-box.stream"
+	check "dsi:menu" "started from the DSi's own system the run is another one than the game started at once, and the sandbox gives the native build's $(wc -l < "$work/di-menu.stream") digests" \
+		sh -c "! cmp -s '$work/di-menu.stream' '$work/di-idle.stream' && [ \"\$(awk '{print \$7}' '$work/di-menu.stream' | sort -u | wc -l)\" -gt 2 ] && cmp -s '$work/di-menu.stream' '$work/di-menu-box.stream'"
+	check "dsi:nand-untouched" "the NAND image's file is the same after all these runs: the machine works on a copy in its memory" \
+		[ "$(sha1sum < "$dsinand")" = "$nand_before" ]
+	folder di-none '{"machine":"dsi"}' "$dsi"
+	nat di-none di-none --frames 1
+	check "dsi:files-missing" "a DSi without its files is refused, by the files' names" \
+		grep -q "Init failed.*bios7i\.bin" "$work/di-none.out" "$work/di-none.err"
+else
+	for t in runs pad sandbox state-every-frame state-other-box state-rewind menu nand-untouched files-missing; do
+		report "dsi:$t" SKIP "no DSi game with a DSi's BIOS files, firmware and NAND image (DSI_GAME, DSI_BIOS7, DSI_BIOS9, DSI_FIRMWARE, DSI_NAND)"
+	done
+fi
+
 # ------------------------------------------------- in Chimera's engine
 engine="$chimera_root/build/meson-linux/chimera-run"
 pkg="$chimera_root/build/Cores/melonds.chimeraCore"
@@ -351,8 +407,19 @@ if [ -n "$chimera_root" ] && [ -x "$engine" ] && [ -f "$pkg" ]; then
 		report "engine:game" SKIP "no Nintendo DS game (NDS_GAME)"
 		report "engine:bios" SKIP "no Nintendo DS game (NDS_GAME)"
 	fi
+	if [ -n "$dsi" ] && [ -f "$bios7i" ] && [ -f "$bios9i" ] && [ -f "$dsifirmware" ] && [ -f "$dsinand" ]; then
+		python3 "$mk" "$pkg" "$work/di.chimeraProject" 900 machine=dsi "panel=$work/ds.out" "press=Start:599:5" "press=A:799:5" \
+			"firmware=bios7i.bin=$bios7i" "firmware=bios9i.bin=$bios9i" "firmware=dsi_firmware.bin=$dsifirmware" "firmware=dsi_nand.bin=$dsinand" -- "cart=$dsi" > "$work/di.project.log" 2>&1
+		"$engine" --project "$work/di.chimeraProject" "$pkg" --files "$dsigame" --firmware "bios7i.bin=$bios7i" --firmware "bios9i.bin=$bios9i" \
+			--firmware "dsi_firmware.bin=$dsifirmware" --firmware "dsi_nand.bin=$dsinand" --dump "Main RAM=$work/di-engine.ram" > "$work/di.engine" 2>&1
+		box di-same di --frames 900 --report 900 --press 4:600:5 --press 7:800:5 --dump-domain "Main RAM" "$work/di-same.ram"
+		check "engine:dsi" "a DSi project with the DSi's four files as its firmware plays a 900-frame movie in Chimera's engine and leaves the Main RAM the sandbox runner leaves with the same presses" \
+			sh -c "grep -q '^frames=900' '$work/di.engine' && cmp -s '$work/di-engine.ram' '$work/di-same.ram'"
+	else
+		report "engine:dsi" SKIP "no DSi game with a DSi's files"
+	fi
 else
-	for t in nds game bios; do
+	for t in nds game bios dsi; do
 		report "engine:$t" SKIP "set CHIMERA_ROOT to a Chimera checkout with build/meson-linux/chimera-run and this core's package (waterbox/build-package.sh -r <it>)"
 	done
 fi

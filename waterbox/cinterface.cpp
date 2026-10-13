@@ -9,6 +9,9 @@
 // thread.
 // SPDX-License-Identifier: MIT
 #include "NDS.h"
+#include "DSi.h"
+#include "DSi_NAND.h"
+#include "Platform.h"
 #include "NDSCart.h"
 #include "GPU.h"
 #include "GPU3D_Soft.h"
@@ -23,6 +26,7 @@
 #include <cstring>
 #include <ctime>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -40,6 +44,12 @@ namespace
 char g_loadError[1024];
 NDS *g_nds;
 bool g_stopped;
+bool g_dsi;                       // the machine is a DSi
+// The DSi's NAND, the chip its system and its settings are on. The machine
+// reads and writes it while it runs, so it is kept whole in the machine's
+// memory (platform.cpp reads and writes it there) and a savestate holds it.
+std::vector<uint8_t> g_nand;
+const char *const kNandName = "dsi_nand.bin";
 
 // ---- the picture -----------------------------------------------------------------
 // The machine has two screens of 256x192. They are put into one picture the
@@ -229,25 +239,107 @@ void take_picture()
 		}
 }
 
-// The firmware's user settings a game can read: the language. The rest stays
-// as melonDS writes it (the name "melonDS", a birthday, a favourite colour).
-void set_firmware_language(Firmware &firmware)
+// the Language setting, as the number the console keeps
+int chosen_language()
 {
 	static const char *const kLanguages[] = { "japanese", "english", "french", "german", "italian", "spanish" };
 	std::string language = "english";
 	setting_text("language", language);
 	for (int i = 0; i < 6; i++)
-		if (language == kLanguages[i])
-		{
-			auto &user = firmware.GetEffectiveUserData();
-			user.Settings = u16((user.Settings & ~Firmware::Language::Reserved) | i);
-		}
+		if (language == kLanguages[i]) return i;
+	return 1;
+}
+
+// The firmware's user settings a game can read: the language. The rest stays
+// as melonDS writes it (the name "melonDS", a birthday, a favourite colour).
+void set_firmware_language(Firmware &firmware)
+{
+	auto &user = firmware.GetEffectiveUserData();
+	user.Settings = u16((user.Settings & ~Firmware::Language::Reserved) | chosen_language());
 	firmware.UpdateChecksums();
+}
+
+// The DSi's four files, into the machine's description. The NAND is read
+// whole into memory and its user settings are given the Language setting and
+// the touch screen's calibration melonDS works with, as melonDS's own
+// program does to the file it is pointed at; here the user's file is never
+// written to.
+bool load_dsi_files(NDSArgs &args, std::unique_ptr<DSiBIOSImage> &arm9i, std::unique_ptr<DSiBIOSImage> &arm7i, std::optional<DSi_NAND::NANDImage> &nandOut)
+{
+	std::vector<uint8_t> bios7i, bios9i, firmware;
+	if (!read_file("bios7i.bin", bios7i) || bios7i.size() != DSiBIOSSize
+		|| !read_file("bios9i.bin", bios9i) || bios9i.size() != DSiBIOSSize)
+	{
+		snprintf(g_loadError, sizeof g_loadError, "the DSi's BIOS files could not be read: bios7i.bin and bios9i.bin have to be %u bytes each", unsigned(DSiBIOSSize));
+		return false;
+	}
+	if (!read_file("dsi_firmware.bin", firmware) || firmware.empty())
+	{
+		snprintf(g_loadError, sizeof g_loadError, "the DSi's firmware file (dsi_firmware.bin) could not be read");
+		return false;
+	}
+	if (!read_file(kNandName, g_nand) || g_nand.empty())
+	{
+		snprintf(g_loadError, sizeof g_loadError, "the DSi's NAND image (dsi_nand.bin) could not be read");
+		return false;
+	}
+	arm7i = std::make_unique<DSiBIOSImage>();
+	arm9i = std::make_unique<DSiBIOSImage>();
+	memcpy(arm7i->data(), bios7i.data(), DSiBIOSSize);
+	memcpy(arm9i->data(), bios9i.data(), DSiBIOSSize);
+	args.Firmware = Firmware(firmware.data(), u32(firmware.size()));
+	if (!args.Firmware.Buffer())
+	{
+		snprintf(g_loadError, sizeof g_loadError, "dsi_firmware.bin is not a DSi firmware");
+		return false;
+	}
+	// the key the NAND is encrypted with is in the second processor's BIOS
+	DSi_NAND::NANDImage nand(Platform::OpenFile(kNandName, Platform::FileMode::ReadWriteExisting), &bios7i[0x8308]);
+	if (!nand)
+	{
+		snprintf(g_loadError, sizeof g_loadError, "dsi_nand.bin is not a DSi NAND image, or not one with its console's footer (\"DSi eMMC CID/CPU\") at the end");
+		return false;
+	}
+	{
+		DSi_NAND::NANDMount mount(nand);
+		DSi_NAND::DSiFirmwareSystemSettings user {};
+		if (!mount || !mount.ReadUserData(user))
+		{
+			snprintf(g_loadError, sizeof g_loadError, "the DSi's NAND image could not be read with this BIOS: the two have to come from the same console");
+			return false;
+		}
+		user.Language = Firmware::Language(chosen_language());
+		user.TouchCalibrationADC1 = { 0, 0 };
+		user.TouchCalibrationPixel1 = { 0, 0 };
+		user.TouchCalibrationADC2 = { 255 << 4, 191 << 4 };
+		user.TouchCalibrationPixel2 = { 255, 191 };
+		user.UpdateHash();
+		mount.ApplyUserData(user);
+	}
+	{
+		// read back from the copy: a write that went nowhere must not pass for one
+		DSi_NAND::NANDMount mount(nand);
+		DSi_NAND::DSiFirmwareSystemSettings user {};
+		if (!mount || !mount.ReadUserData(user) || int(user.Language) != chosen_language() || user.TouchCalibrationADC2[0] != (255 << 4))
+		{
+			snprintf(g_loadError, sizeof g_loadError, "the DSi's settings could not be written into the copy of its NAND image");
+			return false;
+		}
+	}
+	nandOut.emplace(std::move(nand));
+	return true;
 }
 
 } // namespace
 
 void frontend_stopped(int) { g_stopped = true; }
+bool frontend_memory_file(const char *name, uint8_t **data, uint64_t *size)
+{
+	if (g_nand.empty() || strcmp(name, kNandName)) return false;
+	*data = g_nand.data();
+	*size = g_nand.size();
+	return true;
+}
 
 // The microphone hears noise as loud as the Mic Volume control says, and
 // silence at 0: enough for the games that are blown or shouted at.
@@ -306,6 +398,14 @@ ECL_EXPORT int Init(void)
 	// by default the free BIOS melonDS carries and the firmware it writes for
 	// itself. With the BIOS setting on "original" the console's own three
 	// files are the project's firmware.
+	std::string machine = "nds";
+	setting_text("machine", machine);
+	if (machine != "nds" && machine != "dsi")
+	{
+		snprintf(g_loadError, sizeof g_loadError, "unknown machine \"%s\"", machine.c_str());
+		return 0;
+	}
+	g_dsi = machine == "dsi";
 	NDSArgs args;
 	args.JIT = std::nullopt;
 	args.Renderer3D = std::make_unique<SoftRenderer>();
@@ -323,28 +423,42 @@ ECL_EXPORT int Init(void)
 			snprintf(g_loadError, sizeof g_loadError, "the console's BIOS files could not be read: bios7.bin has to be %u bytes and bios9.bin %u", unsigned(ARM7BIOSSize), unsigned(ARM9BIOSSize));
 			return 0;
 		}
-		if (!read_file("firmware.bin", firmware) || firmware.empty())
-		{
-			snprintf(g_loadError, sizeof g_loadError, "the console's firmware file (firmware.bin) could not be read");
-			return 0;
-		}
 		memcpy(args.ARM7BIOS->data(), bios7.data(), ARM7BIOSSize);
 		memcpy(args.ARM9BIOS->data(), bios9.data(), ARM9BIOSSize);
-		args.Firmware = Firmware(firmware.data(), u32(firmware.size()));
-		if (!args.Firmware.Buffer())
+		if (!g_dsi)
 		{
-			snprintf(g_loadError, sizeof g_loadError, "firmware.bin is not a Nintendo DS firmware: it has to be 128, 256 or 512 KB");
-			return 0;
+			// (a DSi has its own firmware: load_dsi_files)
+			if (!read_file("firmware.bin", firmware) || firmware.empty())
+			{
+				snprintf(g_loadError, sizeof g_loadError, "the console's firmware file (firmware.bin) could not be read");
+				return 0;
+			}
+			args.Firmware = Firmware(firmware.data(), u32(firmware.size()));
+			if (!args.Firmware.Buffer())
+			{
+				snprintf(g_loadError, sizeof g_loadError, "firmware.bin is not a Nintendo DS firmware: it has to be 128, 256 or 512 KB");
+				return 0;
+			}
 		}
 	}
-	else if (boot == "firmware")
+	else if (boot == "firmware" && !g_dsi)
 	{
 		snprintf(g_loadError, sizeof g_loadError, "starting from the console's menu needs the console's own BIOS: set BIOS to 'original', or Start With to 'game'");
 		return 0;
 	}
+	std::unique_ptr<DSiBIOSImage> arm9i, arm7i;
+	std::optional<DSi_NAND::NANDImage> nand;
+	if (g_dsi && !load_dsi_files(args, arm9i, arm7i, nand)) return 0;
 	set_firmware_language(args.Firmware);
 	lay_out_screens();
-	g_nds = new NDS(std::move(args), nullptr);
+	if (g_dsi)
+	{
+		// the DSi's own start, from its BIOS to its menu, or the game at once;
+		// its sound processor's programs are run by melonDS's own code for them
+		DSiArgs dsi { std::move(args), std::move(arm9i), std::move(arm7i), std::move(*nand), std::nullopt, boot == "firmware", true };
+		g_nds = new DSi(std::move(dsi), nullptr);
+	}
+	else g_nds = new NDS(std::move(args), nullptr);
 	g_nds->SetNDSCart(std::move(cart));
 	g_nds->Reset();
 
@@ -356,7 +470,7 @@ ECL_EXPORT int Init(void)
 	gmtime_r(&start, &when);
 	g_nds->RTC.SetDateTime(when.tm_year + 1900, when.tm_mon + 1, when.tm_mday, when.tm_hour, when.tm_min, when.tm_sec);
 
-	if (boot != "firmware" || g_nds->NeedsDirectBoot())
+	if (boot != "firmware" || (!g_dsi && g_nds->NeedsDirectBoot()))
 	{
 		size_t const slash = files[0].find_last_of('/');
 		g_nds->SetupDirectBoot(slash == std::string::npos ? files[0] : files[0].substr(slash + 1));

@@ -6,6 +6,7 @@
 // SPDX-License-Identifier: MIT
 #include "Platform.h"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -24,50 +25,114 @@ void SignalStop(StopReason reason, void *)
 }
 
 // ---- files -------------------------------------------------------------------
-// The machine opens files only for things this core hands it as memory (the
-// game, the firmware, a save). What is left is read-only access by name.
-struct FileHandle { FILE *f; };
+// Two kinds. A file on the project's list is opened by name and only read.
+// A file the machine also writes to while it runs (the DSi's NAND) was read
+// whole into the machine's memory by the core, and is read and written
+// there: the sandbox keeps no file's contents or position in a savestate,
+// and a core writes nothing to the user's files.
+struct FileHandle
+{
+	FILE *f;          // a file of the project's, or null
+	u8 *mem;          // a file kept in memory
+	u64 size, pos;
+	bool eof;
+};
 
 std::string GetLocalFilePath(const std::string &filename) { return filename; }
 
 FileHandle *OpenFile(const std::string &path, FileMode mode)
 {
+	uint8_t *mem = nullptr;
+	uint64_t size = 0;
+	if (frontend_memory_file(path.c_str(), &mem, &size)) return new FileHandle{ nullptr, mem, size, 0, false };
 	if (mode & FileMode::Write) return nullptr;   // nothing is written to a file
 	FILE *f = fopen(path.c_str(), "rb");
-	return f ? new FileHandle{ f } : nullptr;
+	return f ? new FileHandle{ f, nullptr, 0, 0, false } : nullptr;
 }
 FileHandle *OpenLocalFile(const std::string &path, FileMode mode) { return OpenFile(path, mode); }
 bool FileExists(const std::string &name)
 {
+	uint8_t *mem = nullptr;
+	uint64_t size = 0;
+	if (frontend_memory_file(name.c_str(), &mem, &size)) return true;
 	FILE *f = fopen(name.c_str(), "rb");
 	if (f) fclose(f);
 	return f != nullptr;
 }
 bool LocalFileExists(const std::string &name) { return FileExists(name); }
-bool CheckFileWritable(const std::string &) { return false; }
-bool CheckLocalFileWritable(const std::string &) { return false; }
+bool CheckFileWritable(const std::string &name)
+{
+	uint8_t *mem = nullptr;
+	uint64_t size = 0;
+	return frontend_memory_file(name.c_str(), &mem, &size);
+}
+bool CheckLocalFileWritable(const std::string &name) { return CheckFileWritable(name); }
 bool CloseFile(FileHandle *file)
 {
 	if (!file) return false;
-	fclose(file->f);
+	if (file->f) fclose(file->f);
 	delete file;
 	return true;
 }
-bool IsEndOfFile(FileHandle *file) { return feof(file->f) != 0; }
-bool FileReadLine(char *str, int count, FileHandle *file) { return fgets(str, count, file->f) != nullptr; }
-u64 FilePosition(FileHandle *file) { return u64(ftell(file->f)); }
+bool IsEndOfFile(FileHandle *file) { return file->f ? feof(file->f) != 0 : file->eof; }
+bool FileReadLine(char *str, int count, FileHandle *file)
+{
+	if (file->f) return fgets(str, count, file->f) != nullptr;
+	int n = 0;
+	while (n + 1 < count && file->pos < file->size)
+	{
+		char const c = char(file->mem[file->pos++]);
+		str[n++] = c;
+		if (c == '\n') break;
+	}
+	if (count > 0) str[n] = '\0';
+	if (n == 0) file->eof = true;
+	return n > 0;
+}
+u64 FilePosition(FileHandle *file) { return file->f ? u64(ftell(file->f)) : file->pos; }
 bool FileSeek(FileHandle *file, s64 offset, FileSeekOrigin origin)
 {
-	int const whence = origin == FileSeekOrigin::Start ? SEEK_SET : origin == FileSeekOrigin::Current ? SEEK_CUR : SEEK_END;
-	return fseek(file->f, long(offset), whence) == 0;
+	if (file->f)
+	{
+		int const whence = origin == FileSeekOrigin::Start ? SEEK_SET : origin == FileSeekOrigin::Current ? SEEK_CUR : SEEK_END;
+		return fseek(file->f, long(offset), whence) == 0;
+	}
+	s64 const base = origin == FileSeekOrigin::Start ? 0 : origin == FileSeekOrigin::Current ? s64(file->pos) : s64(file->size);
+	if (base + offset < 0 || u64(base + offset) > file->size) return false;
+	file->pos = u64(base + offset);
+	file->eof = false;
+	return true;
 }
-void FileRewind(FileHandle *file) { rewind(file->f); }
-u64 FileRead(void *data, u64 size, u64 count, FileHandle *file) { return fread(data, size, count, file->f); }
+void FileRewind(FileHandle *file)
+{
+	if (file->f) rewind(file->f);
+	file->pos = 0;
+	file->eof = false;
+}
+u64 FileRead(void *data, u64 size, u64 count, FileHandle *file)
+{
+	if (file->f) return fread(data, size, count, file->f);
+	if (!size) return 0;
+	u64 const whole = std::min(count, (file->size - file->pos) / size);
+	memcpy(data, file->mem + file->pos, size_t(whole * size));
+	file->pos += whole * size;
+	if (whole < count) file->eof = true;
+	return whole;
+}
 bool FileFlush(FileHandle *) { return true; }
-u64 FileWrite(const void *, u64, u64, FileHandle *) { return 0; }
+u64 FileWrite(const void *data, u64 size, u64 count, FileHandle *file)
+{
+	if (file->f || !size) return 0;
+	// a file in memory keeps its length: the NAND is a chip of a fixed size
+	u64 const whole = std::min(count, (file->size - file->pos) / size);
+	memcpy(file->mem + file->pos, data, size_t(whole * size));
+	file->pos += whole * size;
+	return whole;
+}
 u64 FileWriteFormatted(FileHandle *, const char *, ...) { return 0; }
 u64 FileLength(FileHandle *file)
 {
+	if (!file->f) return file->size;
 	long const at = ftell(file->f);
 	fseek(file->f, 0, SEEK_END);
 	long const len = ftell(file->f);

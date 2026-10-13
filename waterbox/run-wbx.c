@@ -200,7 +200,7 @@ static void build_host(void)
 	if (!wf) { perror(g_wbxPath); exit(1); }
 
 	/* matches waterbox.config memoryLayoutMiB */
-	mb_memory_layout_template layout = { 512u << 20, 8u << 20, 16u << 20, 64u << 20, 512u << 20 };
+	mb_memory_layout_template layout = { 512u << 20, 8u << 20, 16u << 20, 64u << 20, 1024u << 20 };
 	freader fr = { wf };
 	mb_return r;
 	wbx_create_host(&layout, "core.wbx", file_read, (uintptr_t)&fr, &r);

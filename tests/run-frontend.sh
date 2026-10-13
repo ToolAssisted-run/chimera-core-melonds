@@ -10,7 +10,10 @@
 #  - with the console's BIOS and firmware files (NDS_BIOS7, NDS_BIOS9,
 #    NDS_FIRMWARE): a project that starts from the console's menu takes them
 #    from Chimera's firmware, and without them it is refused and a file is
-#    named.
+#    named;
+#  - with a DSi game and a DSi's four files (DSI_GAME, DSI_BIOS7, DSI_BIOS9,
+#    DSI_FIRMWARE, DSI_NAND): a DSi project takes them from Chimera's
+#    firmware, runs in the window and leaves the headless runner's Main RAM.
 #
 # Usage: tests/run-frontend.sh --chimera-root <chimera checkout> [--frames N] [--keep]
 #   --keep   leave the work folder (logs, configurations, projects) and say where it is
@@ -40,6 +43,11 @@ game="${NDS_GAME:-$here/games-local/nsmb}"
 bios7="${NDS_BIOS7:-$here/roms-local/bios7.bin}"
 bios9="${NDS_BIOS9:-$here/roms-local/bios9.bin}"
 firmware="${NDS_FIRMWARE:-$here/roms-local/firmware.bin}"
+dsigame="${DSI_GAME:-$here/games-local/dsi}"
+bios7i="${DSI_BIOS7:-$here/roms-local/bios7i.bin}"
+bios9i="${DSI_BIOS9:-$here/roms-local/bios9i.bin}"
+dsifirmware="${DSI_FIRMWARE:-$here/roms-local/dsi_firmware.bin}"
+dsinand="${DSI_NAND:-$here/roms-local/dsi_nand.bin}"
 
 emu_exe="$chimera_root/build/Chimera.exe"
 package="$chimera_root/build/Cores/melonds.chimeraCore"
@@ -190,6 +198,27 @@ else
 			report "window:bios" FAIL "frames $(value menu frames) of $frames"
 		fi
 		rm -rf "$fwdir"
+	fi
+fi
+
+# ---- the DSi
+dsi="$(ls "$dsigame"/*.nds 2> /dev/null | head -1)"
+if [ -z "$dsi" ] || [ ! -f "$bios7i" ] || [ ! -f "$bios9i" ] || [ ! -f "$dsifirmware" ] || [ ! -f "$dsinand" ]; then
+	report "window:dsi" SKIP "needs a DSi game (DSI_GAME) and a DSi's BIOS files, firmware and NAND image"
+else
+	# the files are named in place: the NAND image is a quarter of a gigabyte
+	fw=("firmware=bios7i.bin=$bios7i" "firmware=bios9i.bin=$bios9i" "firmware=dsi_firmware.bin=$dsifirmware" "firmware=dsi_nand.bin=$dsinand")
+	python3 "$here/settings-config.py" "$config" "$work/config.dsi.ini" '{}' "{\"bios7i.bin\": \"$bios7i\", \"bios9i.bin\": \"$bios9i\", \"dsi_firmware.bin\": \"$dsifirmware\", \"dsi_nand.bin\": \"$dsinand\"}"
+	make_project dsi $((frames + 100)) "$dsi" machine=dsi "${fw[@]}"
+	"$runner" --project "$work/dsi/dsi.chimeraProject" "$package" --files "$work/dsi" --frames "$frames" \
+		--firmware "bios7i.bin=$bios7i" --firmware "bios9i.bin=$bios9i" --firmware "dsi_firmware.bin=$dsifirmware" --firmware "dsi_nand.bin=$dsinand" \
+		--dump "Main RAM=$work/dsi-engine.ram.bin" > "$work/dsi-engine.log" 2>&1
+	if ! run_frontend dsi "$work/config.dsi.ini" "$frames" "Main RAM"; then
+		report "window:dsi" FAIL "Chimera did not finish the run: $(value dsi detail) $(tail -2 "$work/dsi.log" | tr '\n' ' ' | cut -c1-200)"
+	elif [ "$(value dsi frames)" = "$frames" ] && [ -s "$work/dsi-engine.ram.bin" ] && cmp -s "$work/dsi-engine.ram.bin" "$work/dsi.ram.bin"; then
+		report "window:dsi" PASS "a DSi project opened with the DSi's four files from Chimera's firmware, ran $frames frames in the window and left the Main RAM ($(wc -c < "$work/dsi.ram.bin") bytes) the headless runner leaves"
+	else
+		report "window:dsi" FAIL "frames $(value dsi frames) of $frames, or the Main RAM differs from the headless runner's"
 	fi
 fi
 
