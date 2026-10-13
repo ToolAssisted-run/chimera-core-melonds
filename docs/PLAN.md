@@ -48,8 +48,8 @@ melonDS 1.1 (tag `1.1`, commit b86390e, 2025-11-18), from its source.
 | 3 | The package: controls, settings, screens | Chimera's package checks; a project in Chimera's engine and window | done 2026-10-13 except the window: see "What step 3 decided" |
 | 4 | Touch screen, microphone, lid; save data; the clock | Tests for each | done 2026-10-13: see "The tests" |
 | 5 | The DSi | A DSi game boots with the owner's BIOS files | done 2026-10-13: see "The DSi" |
-| 6 | Tests on a self-made program, Windows, documents, CI | The test script on a runner | |
-| 7 | Publishing | The owner's word | |
+| 6 | Tests on a self-made program, Windows, documents, CI | The test script on a runner | done 2026-10-13 except a run on a CI runner (the repository is not published): see "Windows, and what a runner will test" |
+| 7 | Publishing | The owner's word | waits for the owner |
 
 ## What the first two steps found (2026-10-13)
 
@@ -205,3 +205,28 @@ package checks 18 of 18.
 have to be installed into the NAND; the cameras (they show black); the SD
 card; and the language and calibration written into the NAND have only the
 read-back check, not a game that shows them.
+
+## Windows, and what a runner will test (2026-10-13)
+
+**Windows.** Chimera's headless runner, built for Windows, played three
+movies with presses: the test program (300 frames), New Super Mario Bros.
+(1,200 frames) and Dragon's Lair on the DSi with the four DSi files as
+firmware (900 frames). Each left the Main RAM the Linux runner leaves, byte
+for byte, and the two games' last pictures are the same. Chimera's window
+on Windows was not tried.
+
+**A CI runner** has no game and no file of Nintendo's. The workflow builds
+from a fresh clone and asks by name for the tests that need neither: the
+source and the package's controls, the fifteen "nds:" and "refused:" tests
+with the program the tests assemble, that program in Chimera's engine, and
+in the window `window:nds` and `window:keys`. It has not run yet.
+
+## Not done, and why
+
+- **The GBA slot** (a GBA cartridge beside the DS game, the rumble and
+  motion packs): not asked for; melonDS has it.
+- **Wireless play** between consoles: the core is one machine.
+- **DSiWare, the DSi's cameras and SD card**: see "The DSi".
+- **The 3D renderer's own settings** (melonDS's software renderer has
+  none that change a game; its OpenGL renderers are not built).
+- **Chimera's window on Windows.**
