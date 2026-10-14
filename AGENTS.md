@@ -72,6 +72,10 @@ purpose once and seen to fail.
   `waterbox.config`. The test `package:controls` compares them.
 - **The picture's layout never reaches the machine.** The test
   `nds:layouts` holds that.
+- **The pen's place is a fraction of the whole picture**, because that is
+  what Chimera makes of the mouse's place. The core turns it back through
+  the layout, the gap, the exchange and the turn into a pixel of the lower
+  screen (`pen_on_lower_screen`). The test `nds:pen-layouts` holds that.
 - **The test program keeps no trace of a press that is over.** A test that
   compares memory at the end holds the button to the end. A movie's row N
   is the test runner's frame N + 1.

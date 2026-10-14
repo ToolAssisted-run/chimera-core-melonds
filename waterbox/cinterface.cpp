@@ -88,8 +88,9 @@ const struct { const char *name; int bit; } kButtonTable[kButtons] = {
 	{ "Touch", -1 }, { "Lid Closed", -1 },
 };
 bool g_held[kButtons];
-// The pen's place is a fraction of the lower screen, 0 to 65535 each way, as
-// every pointer in Chimera is; the microphone is how loud a noise it hears.
+// The pen's place is a fraction of the whole picture, 0 to 65535 each way, as
+// every pointer in Chimera is: Chimera turns the mouse's place on the picture
+// into it. The microphone is how loud a noise it hears.
 enum { kTouchX, kTouchY, kMic, kAxes };
 const char *const kAxisNames[kAxes] = { "Touch X", "Touch Y", "Mic Volume" };
 int g_axis[kAxes] = { 32768, 32768, 0 };
@@ -237,6 +238,24 @@ void take_picture()
 			else if (g_turn == 2) g_picture[size_t(g_canvasH - 1 - y) * g_width + (g_canvasW - 1 - x)] = pixel;
 			else g_picture[size_t(g_canvasW - 1 - x) * g_width + y] = pixel;                          // three quarters
 		}
+}
+
+// Where the pen is on the lower screen, from its place on the picture: the
+// picture is turned back, and the lower screen's corner taken away. False when
+// the place is not on the lower screen (on the upper one, in the gap, or the
+// lower screen is not shown): there the pen touches nothing.
+bool pen_on_lower_screen(int &x, int &y)
+{
+	if (g_placeX[1] < 0) return false;
+	int const px = int(int64_t(g_axis[kTouchX]) * g_width / 65536);
+	int const py = int(int64_t(g_axis[kTouchY]) * g_height / 65536);
+	int cx = px, cy = py;
+	if (g_turn == 1) { cx = py; cy = g_canvasH - 1 - px; }
+	else if (g_turn == 2) { cx = g_canvasW - 1 - px; cy = g_canvasH - 1 - py; }
+	else if (g_turn == 3) { cx = g_canvasW - 1 - py; cy = px; }
+	x = cx - g_placeX[1];
+	y = cy - g_placeY[1];
+	return x >= 0 && x < kScreenW && y >= 0 && y < kScreenH;
 }
 
 // the Language setting, as the number the console keeps
@@ -507,8 +526,9 @@ ECL_EXPORT void FrameAdvance(uint64_t)
 	for (int i = 0; i < 12; i++)
 		if (g_held[i]) mask &= ~(1u << kButtonTable[i].bit);
 	g_nds->SetKeyMask(mask);
-	// the pen: a fraction of the lower screen, turned into its pixels
-	if (g_held[kTouch]) g_nds->TouchScreen(u16(g_axis[kTouchX] * kScreenW / 65536), u16(g_axis[kTouchY] * kScreenH / 65536));
+	// the pen: a place on the picture, turned into a pixel of the lower screen
+	int penX, penY;
+	if (g_held[kTouch] && pen_on_lower_screen(penX, penY)) g_nds->TouchScreen(u16(penX), u16(penY));
 	else g_nds->ReleaseScreen();
 	g_nds->SetLidClosed(g_held[kLid]);
 

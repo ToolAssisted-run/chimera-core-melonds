@@ -40,9 +40,11 @@ frames and savestates.
 - **Buttons**: Up, Down, Left, Right, Start, Select, B, A, Y, X, L and R;
   Touch, the pen held on the lower screen; and Lid Closed, the lid shut for
   as long as it is held.
-- **The pen's place** is Touch X and Touch Y, each a fraction of the lower
-  screen from 0 to 65535 (0 is the left or the top edge), whatever the
-  screen layout. **Mic Volume**, 0 to 100, is how loud a noise the
+- **The pen's place** is Touch X and Touch Y, each a fraction of the whole
+  picture from 0 to 65535 (0 is the left or the top edge): clicking the
+  lower screen in Chimera's window puts the pen where the mouse is, whatever
+  the screen layout. Held anywhere else, the pen touches nothing.
+  **Mic Volume**, 0 to 100, is how loud a noise the
   microphone hears, for the games that are blown or shouted at.
 - **The two screens are one picture.** Screen Layout puts them one above the
   other (the default), side by side, or shows one alone; Swap Screens,

@@ -75,9 +75,10 @@ melonDS 1.1 (tag `1.1`, commit b86390e, 2025-11-18), from its source.
   depend on the rate asked for (the same RAM digest at 48 kHz and at this
   rate).
 - **Controls**: Up, Down, Left, Right, Start, Select, B, A, Y, X, L, R,
-  Touch and Lid Closed, and three axes. Touch X and Touch Y are a fraction of
-  the lower screen from 0 to 65535, as every pointer in Chimera's newer
-  cores is; the core turns them into the screen's 256x192 pixels. Mic Volume
+  Touch and Lid Closed, and three axes. Touch X and Touch Y are a fraction
+  from 0 to 65535, as every pointer in Chimera's newer cores is (first of
+  the lower screen; of the whole picture since 2026-10-14, see "The pen
+  follows the picture"). Mic Volume
   is 0 to 100: the microphone hears noise that loud, from a generator kept
   in the machine's memory, and silence at 0.
 - **The two screens are one picture**, laid out by settings that change the
@@ -217,9 +218,48 @@ on Windows was not tried.
 
 **A CI runner** has no game and no file of Nintendo's. The workflow builds
 from a fresh clone and asks by name for the tests that need neither: the
-source and the package's controls, the fifteen "nds:" and "refused:" tests
+source and the package's controls, the sixteen "nds:" and "refused:" tests
 with the program the tests assemble, that program in Chimera's engine, and
 in the window `window:nds` and `window:keys`. It has not run yet.
+
+## The pen follows the picture (2026-10-14)
+
+**What was wrong.** The owner clicked the lower screen in Chimera's window
+and the game felt the pen somewhere else. Chimera turns the mouse's place
+into a fraction of the whole picture (both screens, as the layout shows
+them), and the core read that fraction as one of the lower screen alone.
+Stacked, a click in the middle of the lower screen (row 288 of 384) reached
+the game as row 144 of the lower screen's 192: the lower half of the screen
+could not be reached at all. The 3DS core already reads its pen as a
+fraction of the whole picture.
+
+**What changed.** Touch X and Touch Y are a fraction of the whole picture.
+The core turns that place back through the Rotation, takes away the lower
+screen's corner (which the Screen Layout, Swap Screens and Screen Gap
+decide), and hands the machine that pixel. Held over the upper screen, the
+gap, or with the lower screen not shown, the pen touches nothing.
+
+**What was measured.** The owner's test cartridge, checknds.nds (it prints
+where it feels the pen), reads (128,096) with the pen at the middle of the
+lower screen of the stacked picture. The test program reads pixel 192,48 of
+the lower screen from the place where each layout shows that pixel:
+stacked, side by side with a gap, exchanged and turned a quarter, and
+turned a half and three quarters (by hand). Over the upper screen, and with
+the upper screen alone, it reads the pen up. The test `nds:pen-layouts`
+holds the side-by-side, turned, upper-screen and upper-screen-alone cases;
+`nds:pen-and-lid` now points at the lower screen of the stacked picture.
+`nds:layouts` leaves the pen out: the same place on another picture is
+another pixel of the lower screen, so the machine's memory differs there by
+design.
+
+Broken on purpose (the quarter turn not turned back): `nds:pen-layouts`
+failed, reading the pen up where the pixel 192,48 should be. Counts after
+the change: the test script 45 passed, 0 failed, 0 skipped with every file
+and Chimera's engine; the window test 6 passed; Chimera's package checks 18
+of 18.
+
+Movies made with the earlier build put the pen elsewhere; none was
+published.
 
 ## Not done, and why
 

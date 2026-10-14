@@ -151,9 +151,14 @@ python3 "$root/tests/make-nds-program.py" "$work/quiet/chimera-test.nds" nopad >
 prog="$work/prog/chimera-test.nds"
 folder ds '{}' "$prog"
 folder dsq '{}' "$work/quiet/chimera-test.nds"
+# The pen's place is a fraction of the whole picture, 0 to 65535 each way:
+# the value of the middle of pixel P of a picture SIZE pixels across
+at() { echo $(( (2 * $1 + 1) * 32768 / $2 )); }
 # A held for a second, then the pad, then the pen at three quarters across
-# and a quarter down with the lid shut and X held, to the end
-dsrun="--frames 300 --report 10 --press 7:60:60 --press 0:130:20 --press 4:160:10 --axis 0:49152:1:400 --axis 1:16384:1:400 --press 12:200:200 --press 13:240:200 --press 9:240:200"
+# the lower screen and a quarter down it (pixel 192,48 of the lower screen,
+# 192,240 of the stacked picture of 256x384) with the lid shut and X held, to
+# the end
+dsrun="--frames 300 --report 10 --press 7:60:60 --press 0:130:20 --press 4:160:10 --axis 0:$(at 192 256):1:400 --axis 1:$(at 240 384):1:400 --press 12:200:200 --press 13:240:200 --press 9:240:200"
 nat ds-idle ds --frames 300 --report 10 --dump-domain "Main RAM" "$work/ds-idle.ram"
 nat ds ds $dsrun --list-panel --dump-domain "Main RAM" "$work/ds.ram"
 box ds-box ds $dsrun
@@ -185,7 +190,7 @@ check "nds:buttons" "each of the twelve buttons, held on its own, clears its own
 # what the program read at the end, against what it reads with nothing held:
 # the second button register is 0x7F idle (X, Y and the pen up, the lid
 # open); the pen's place is sixteen times the pixel
-check "nds:pen-and-lid" "the pen held at three quarters across and a quarter down reads as pixel $(( $(word "$work/ds.ram" 3) / 16 )),$(( $(word "$work/ds.ram" 4) / 16 )); with it, the lid shut and X held the second button register reads $(word "$work/ds.ram" 2) (idle: $(word "$work/ds-idle.ram" 2), pen up at $(word "$work/ds-idle.ram" 3),$(word "$work/ds-idle.ram" 4))" \
+check "nds:pen-and-lid" "the pen held at three quarters across the lower screen and a quarter down it reads as pixel $(( $(word "$work/ds.ram" 3) / 16 )),$(( $(word "$work/ds.ram" 4) / 16 )); with it, the lid shut and X held the second button register reads $(word "$work/ds.ram" 2) (idle: $(word "$work/ds-idle.ram" 2), pen up at $(word "$work/ds-idle.ram" 3),$(word "$work/ds-idle.ram" 4))" \
 	[ "$(word "$work/ds.ram" 3)" = 3072 -a "$(word "$work/ds.ram" 4)" = 768 -a "$(word "$work/ds.ram" 2)" = 190 -a "$(word "$work/ds-idle.ram" 2)" = 127 -a "$(word "$work/ds-idle.ram" 3)" = 0 -a "$(word "$work/ds-idle.ram" 4)" = 4095 ]
 
 # the microphone: silent at volume 0, noise at volume 100
@@ -208,14 +213,37 @@ check "nds:state-other-box" "a state moved to a new sandbox half way changes not
 check "nds:state-rewind" "a state kept at frame 150 and loaded at 225: the frames after the load repeat those after the save" \
 	repeats "$work/ds-rewind.out" 150 225 75 5
 
-# the screen layouts: another picture, the same machine
+# the screen layouts: another picture, the same machine. Every control but
+# the pen is used: the pen's place is a place on the picture, so it lands
+# elsewhere on the lower screen in another layout (nds:pen-layouts)
+layrun="$(echo "$dsrun" | sed 's/ --press 12:200:200//')"
 folder ds-side '{"layout":"side-by-side","screen_gap":"32"}' "$prog"
 folder ds-turn '{"rotation":"90","swap_screens":"true"}' "$prog"
 folder ds-top '{"layout":"top"}' "$prog"
-for n in side turn top; do nat ds-$n ds-$n $dsrun; stream "$work/ds-$n.out" | awk '{print $2, $4, $9, $10}' > "$work/ds-$n.machine"; done
-stream "$work/ds.out" | awk '{print $2, $4, $9, $10}' > "$work/ds.machine"
-check "nds:layouts" "side by side with a gap of 32 the picture is $(field "$work/ds-side.out" vid), turned a quarter $(field "$work/ds-turn.out" vid), the upper screen alone $(field "$work/ds-top.out" vid) (stacked: $(field "$work/ds.out" vid)); the RAM and the sound are the stacked run's in all three" \
+nat ds-lay ds $layrun
+for n in side turn top; do nat ds-$n ds-$n $layrun; stream "$work/ds-$n.out" | awk '{print $2, $4, $9, $10}' > "$work/ds-$n.machine"; done
+stream "$work/ds-lay.out" | awk '{print $2, $4, $9, $10}' > "$work/ds.machine"
+check "nds:layouts" "side by side with a gap of 32 the picture is $(field "$work/ds-side.out" vid), turned a quarter $(field "$work/ds-turn.out" vid), the upper screen alone $(field "$work/ds-top.out" vid) (stacked: $(field "$work/ds.out" vid)); with every control but the pen, the RAM and the sound are the stacked run's in all three" \
 	sh -c "[ '$(field "$work/ds-side.out" vid)' = 544x192 ] && [ '$(field "$work/ds-turn.out" vid)' = 384x256 ] && [ '$(field "$work/ds-top.out" vid)' = 256x192 ] && [ '$(field "$work/ds.out" vid)' = 256x384 ] && cmp -s '$work/ds.machine' '$work/ds-side.machine' && cmp -s '$work/ds.machine' '$work/ds-turn.machine' && cmp -s '$work/ds.machine' '$work/ds-top.machine'"
+
+# The pen follows the picture: pixel 192,48 of the lower screen is pointed at
+# where each layout shows it, and the program reads that pixel every time.
+# Side by side with a gap of 32 the lower screen starts at x 288, so it is at
+# 480,48 of 544x192; exchanged and turned a quarter clockwise (384x256) the
+# lower screen is the top of the picture before the turn, and its pixel
+# 192,48 lands at 383-48,192 = 335,192. Pointed at the upper screen, or with
+# the lower screen not shown, the pen touches nothing.
+pen_at() { # name folder x y: the pen held at that place of the picture
+	nat "$1" "$2" --frames 20 --report 20 --axis 0:$3:1:100 --axis 1:$4:1:100 --press 12:5:100 --dump-domain "Main RAM" "$work/$1.ram"
+	echo "$(( $(word "$work/$1.ram" 3) / 16 )),$(( $(word "$work/$1.ram" 4) / 16 ))"
+}
+side="$(pen_at pen-side ds-side "$(at 480 544)" "$(at 48 192)")"
+turn="$(pen_at pen-turn ds-turn "$(at 335 384)" "$(at 192 256)")"
+upper="$(pen_at pen-upper ds "$(at 192 256)" "$(at 48 384)")"
+top="$(pen_at pen-top ds-top "$(at 192 256)" "$(at 48 192)")"
+idle="$(( $(word "$work/ds-idle.ram" 3) / 16 )),$(( $(word "$work/ds-idle.ram" 4) / 16 ))"
+check "nds:pen-layouts" "the place of the lower screen's pixel 192,48 in each picture reads as pixel $side side by side and $turn exchanged and turned; the pen on the upper screen reads $upper, with the upper screen alone $top (the pen up: $idle)" \
+	[ "$side" = 192,48 -a "$turn" = 192,48 -a "$upper" = "$idle" -a "$top" = "$idle" ]
 
 # ------------------------------------------------- what is refused
 mkdir -p "$work/none"

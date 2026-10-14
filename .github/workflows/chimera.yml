@@ -133,7 +133,7 @@ jobs:
           [ "$rc" -eq 0 ]
           for t in source:patched package:fresh package:controls nds:runs nds:pad nds:sandbox nds:controls \
                    nds:buttons nds:pen-and-lid nds:microphone nds:lag nds:state-every-frame nds:state-other-box \
-                   nds:state-rewind nds:layouts refused:no-game refused:menu-needs-bios refused:bios-missing engine:nds; do
+                   nds:state-rewind nds:layouts nds:pen-layouts refused:no-game refused:menu-needs-bios refused:bios-missing engine:nds; do
             grep -q "^$t  *PASS " gate.out || { echo "$t did not pass"; exit 1; }
           done
 
