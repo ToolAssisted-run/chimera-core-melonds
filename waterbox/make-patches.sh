@@ -11,8 +11,7 @@ tree="$root/extern/melonDS"
 
 # name | files (space separated), in the order the patches apply
 series='
-0001-chimera-the-loader-reads-no-settings-file|src/chip8emuhostex.cpp
-0002-chimera-the-random-seed-is-the-machines|src/emulation/chip8cores.cpp
+0001-chimera-the-recompiler-runs-without-fast-memory|src/ARMJIT_Memory.cpp
 '
 
 rm -f "$root"/patches/*.patch

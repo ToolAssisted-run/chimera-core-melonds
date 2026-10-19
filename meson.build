@@ -9,8 +9,9 @@
 #
 # melonDS builds with CMake: a library of the machine ("core", src/) and a Qt
 # program around it. Only the machine is built here, from the same list of
-# files as src/CMakeLists.txt, without its recompiler, its OpenGL renderers
-# and its network code. waterbox/ is the program around it: what the machine
+# files as src/CMakeLists.txt, without its OpenGL renderers and its network
+# code. Its ARM recompiler is built (the owner's decision, 2026-10-19), with
+# no fast memory: patch 0001. waterbox/ is the program around it: what the machine
 # asks of its host (waterbox/platform.cpp) and the functions Chimera calls
 # (waterbox/cinterface.cpp). Both flavours compile the SAME sources; only
 # emulibc.h differs (waterbox/native-shim for the reference).
@@ -37,6 +38,9 @@ defs = [
   '-DNDEBUG',
   # what the patches test for
   '-DCHIMERA_CORE',
+  # the recompiler, and none of its fast memory (patch 0001)
+  '-DJIT_ENABLED',
+  '-DCHIMERA_NO_FASTMEM',
 ]
 # melonDS's own choice (src/CMakeLists.txt): signed overflow wraps. And one
 # answer from a floating-point expression on every machine: no contraction
@@ -75,6 +79,11 @@ core_names = [
   'teakra/src/ahbm.cpp', 'teakra/src/apbp.cpp', 'teakra/src/btdmp.cpp', 'teakra/src/disassembler.cpp',
   'teakra/src/dma.cpp', 'teakra/src/timer.cpp', 'teakra/src/memory_interface.cpp', 'teakra/src/mmio.cpp',
   'teakra/src/parser.cpp', 'teakra/src/processor.cpp', 'teakra/src/teakra.cpp',
+  # the ARM recompiler for x86-64 (src/CMakeLists.txt, ENABLE_JIT)
+  'ARM_InstrInfo.cpp', 'ARMJIT.cpp', 'ARMJIT_Memory.cpp', 'ARMJIT_Global.cpp',
+  'dolphin/CommonFuncs.cpp', 'dolphin/x64ABI.cpp', 'dolphin/x64CPUDetect.cpp', 'dolphin/x64Emitter.cpp',
+  'ARMJIT_x64/ARMJIT_Compiler.cpp', 'ARMJIT_x64/ARMJIT_ALU.cpp', 'ARMJIT_x64/ARMJIT_LoadStore.cpp',
+  'ARMJIT_x64/ARMJIT_Branch.cpp', 'ARMJIT_x64/ARMJIT_Linkage.S',
 ]
 core_sources = files('waterbox/platform.cpp', 'waterbox/cinterface.cpp')
 foreach n : core_names

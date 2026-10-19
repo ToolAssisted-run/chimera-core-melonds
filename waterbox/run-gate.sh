@@ -213,6 +213,18 @@ check "nds:state-other-box" "a state moved to a new sandbox half way changes not
 check "nds:state-rewind" "a state kept at frame 150 and loaded at 225: the frames after the load repeat those after the save" \
 	repeats "$work/ds-rewind.out" 150 225 75 5
 
+# The CPU setting (the owner's decision, 2026-10-19): everything above ran on
+# the default, the recompiler. The interpreter counts the machine's time per
+# instruction where the recompiler counts it per block, so it is another run
+# of the same program - which is how the setting is seen to reach the
+# machine - and the sandbox must still give the native build's digests.
+folder dsint '{"cpu":"interpreter"}' "$prog"
+nat ds-int dsint $dsrun
+box ds-int-box dsint $dsrun
+for n in ds-int ds-int-box; do stream "$work/$n.out" > "$work/$n.stream"; done
+check "nds:cpu" "on the interpreter (CPU 'interpreter') the program runs another run than on the recompiler, the default, and the sandbox gives the native build's $(wc -l < "$work/ds-int.stream") digests" \
+	sh -c "[ -s '$work/ds-int.stream' ] && ! cmp -s '$work/ds.stream' '$work/ds-int.stream' && cmp -s '$work/ds-int.stream' '$work/ds-int-box.stream'"
+
 # the screen layouts: another picture, the same machine. Every control but
 # the pen is used: the pen's place is a place on the picture, so it lands
 # elsewhere on the lower screen in another layout (nds:pen-layouts)
@@ -383,8 +395,11 @@ if [ -n "$dsi" ] && [ -f "$bios7i" ] && [ -f "$bios9i" ] && [ -f "$dsifirmware" 
 	check "dsi:state-other-box" "a state moved to a new sandbox half way changes nothing" same "$work/di-box.stream" "$work/di-session.stream"
 	check "dsi:state-rewind" "a state kept at frame 600 and loaded at 900: the frames after the load repeat those after the save" \
 		repeats "$work/di-rewind.out" 600 900 300 5
-	nat di-menu di-menu --frames 900 --report 50
-	box di-menu-box di-menu --frames 900 --report 50
+	# every 10 frames: the system's start-up passes through a few frames of
+	# fade, and on the recompiler (the default since 2026-10-19) it reaches
+	# the menu some 20 frames sooner, between two reports 50 apart
+	nat di-menu di-menu --frames 900 --report 10
+	box di-menu-box di-menu --frames 900 --report 10
 	stream "$work/di-menu.out" > "$work/di-menu.stream"; stream "$work/di-menu-box.out" > "$work/di-menu-box.stream"
 	check "dsi:menu" "started from the DSi's own system the run is another one than the game started at once, and the sandbox gives the native build's $(wc -l < "$work/di-menu.stream") digests" \
 		sh -c "! cmp -s '$work/di-menu.stream' '$work/di-idle.stream' && [ \"\$(awk '{print \$7}' '$work/di-menu.stream' | sort -u | wc -l)\" -gt 2 ] && cmp -s '$work/di-menu.stream' '$work/di-menu-box.stream'"

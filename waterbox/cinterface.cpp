@@ -413,10 +413,10 @@ ECL_EXPORT int Init(void)
 		return 0;
 	}
 
-	// the machine: the interpreter, the software renderer on this thread, and
-	// by default the free BIOS melonDS carries and the firmware it writes for
-	// itself. With the BIOS setting on "original" the console's own three
-	// files are the project's firmware.
+	// the machine: the recompiler or the interpreter (the CPU setting), the
+	// software renderer on this thread, and by default the free BIOS melonDS
+	// carries and the firmware it writes for itself. With the BIOS setting on
+	// "original" the console's own three files are the project's firmware.
 	std::string machine = "nds";
 	setting_text("machine", machine);
 	if (machine != "nds" && machine != "dsi")
@@ -426,7 +426,22 @@ ECL_EXPORT int Init(void)
 	}
 	g_dsi = machine == "dsi";
 	NDSArgs args;
-	args.JIT = std::nullopt;
+	// The recompiler by default (the owner's decision, 2026-10-19). It counts
+	// the machine's time per block where the interpreter counts it per
+	// instruction, so the two are different machines and a movie needs the
+	// one it was made with. Its options are melonDS's own defaults, and no
+	// fast memory: every access goes through melonDS's handlers (patch 0001).
+	std::string cpu = "jit";
+	setting_text("cpu", cpu);
+	if (cpu != "jit" && cpu != "interpreter")
+	{
+		snprintf(g_loadError, sizeof g_loadError, "unknown CPU \"%s\"", cpu.c_str());
+		return 0;
+	}
+	if (cpu == "jit")
+		args.JIT = JITArgs{ 32, true, true, false };
+	else
+		args.JIT = std::nullopt;
 	args.Renderer3D = std::make_unique<SoftRenderer>();
 	args.OutputSampleRate = kSampleRate;
 	std::string bios = "free", boot = "game";

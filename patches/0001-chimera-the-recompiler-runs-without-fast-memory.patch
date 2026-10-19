@@ -1,0 +1,75 @@
+diff --git a/src/ARMJIT_Memory.cpp b/src/ARMJIT_Memory.cpp
+index 09bad072..3545326b 100644
+--- a/src/ARMJIT_Memory.cpp
++++ b/src/ARMJIT_Memory.cpp
+@@ -743,7 +743,16 @@ u32 ARMJIT_Memory::PageShift = 0;
+ 
+ bool ARMJIT_Memory::IsFastMemSupported()
+ {
+-#if defined(__APPLE__) || defined(__OpenBSD__)
++#if defined(CHIMERA_NO_FASTMEM)
++    // Chimera: fast memory maps one shared memory file at several places
++    // and takes the faults of the guest's own accesses; a sandbox has
++    // neither, and a machine must not depend on them. The JIT runs with
++    // every access through melonDS's handlers. The page size is still what
++    // code invalidation counts in, so it is set as Linux's would be.
++    PageSize = RegularPageSize;
++    PageShift = __builtin_ctz(PageSize);
++    return false;
++#elif defined(__APPLE__) || defined(__OpenBSD__)
+     return false;
+ #else
+     static bool initialised = false;
+@@ -769,7 +778,9 @@ bool ARMJIT_Memory::IsFastMemSupported()
+ 
+ void ARMJIT_Memory::RegisterFaultHandler()
+ {
+-#ifdef _WIN32
++#if defined(CHIMERA_NO_FASTMEM)
++    // no fast memory, so no fault of the guest's own is melonDS's
++#elif defined(_WIN32)
+     ExceptionHandlerHandle = AddVectoredExceptionHandler(1, ExceptionHandler);
+ 
+     KernelBaseDll = LoadLibrary("KernelBase.dll");
+@@ -798,7 +809,8 @@ void ARMJIT_Memory::RegisterFaultHandler()
+ 
+ void ARMJIT_Memory::UnregisterFaultHandler()
+ {
+-#ifdef _WIN32
++#if defined(CHIMERA_NO_FASTMEM)
++#elif defined(_WIN32)
+     if (ExceptionHandlerHandle)
+     {
+         RemoveVectoredExceptionHandler(ExceptionHandlerHandle);
+@@ -844,7 +856,16 @@ bool ARMJIT_Memory::FaultHandler(FaultDescription& faultDesc, melonDS::NDS& nds)
+ ARMJIT_Memory::ARMJIT_Memory(melonDS::NDS& nds) : NDS(nds)
+ {
+     ARMJIT_Global::Init();
+-#if defined(__SWITCH__)
++#if defined(CHIMERA_NO_FASTMEM)
++    // the machine's memory, plain: no shared memory file, no reservation of
++    // the address space fast memory would map it into
++    MemoryBase = new u8[MemoryTotalSize];
++    memset(MemoryBase, 0, MemoryTotalSize);
++    // and the page size code invalidation counts in, which only the fast
++    // memory check sets otherwise (and it is not asked with fast memory off)
++    PageSize = RegularPageSize;
++    PageShift = __builtin_ctz(PageSize);
++#elif defined(__SWITCH__)
+     MemoryBase = (u8*)aligned_alloc(0x1000, MemoryTotalSize);
+     virtmemLock();
+     MemoryBaseCodeMem = (u8*)virtmemFindCodeMemory(MemoryTotalSize, 0x1000);
+@@ -929,7 +950,12 @@ ARMJIT_Memory::ARMJIT_Memory(melonDS::NDS& nds) : NDS(nds)
+ 
+ ARMJIT_Memory::~ARMJIT_Memory() noexcept
+ {
+-#if defined(__SWITCH__)
++#if defined(CHIMERA_NO_FASTMEM)
++    delete[] MemoryBase;
++    MemoryBase = nullptr;
++    FastMem9Start = nullptr;
++    FastMem7Start = nullptr;
++#elif defined(__SWITCH__)
+     virtmemLock();
+     if (FastMem9Reservation)
+         virtmemRemoveReservation(FastMem9Reservation);

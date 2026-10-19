@@ -261,6 +261,37 @@ of 18.
 Movies made with the earlier build put the pen elsewhere; none was
 published.
 
+## The recompiler, by default (user-decided, 2026-10-19, chimera#316)
+
+The owner decided melonDS's ARM recompiler (its JIT) is built and is the
+default. A new setting, CPU (`cpu`), chooses `jit` (the default) or
+`interpreter`. The two count the machine's time differently - per block of
+code against per instruction - so they are two machines, and a movie needs
+the one it was made with. A project made before this setting existed was
+made with the interpreter and lacks the setting, so it now takes the
+recompiler and may not play back as it did; it plays back with
+`interpreter` chosen. The core's own fallback, for the test runners, is the
+recompiler too.
+
+What the sandbox needed (patch 0001): no fast memory. melonDS maps one
+shared memory file at several places and takes the faults of the program's
+own memory accesses; a sandbox has neither, and a machine must not depend on
+them. With `CHIMERA_NO_FASTMEM` the recompiler's memory is a plain
+allocation, no fault handler is installed, and every access goes through
+melonDS's handlers. Its page size, which only the fast-memory check set,
+is set to 4 KiB, as code invalidation counts in it. The recompiler's code
+buffer is made executable by mprotect, which the sandbox allows. The
+x86-64 emitter asks the processor what it has and may use different
+instructions on different machines; the results are the same.
+
+Measured: the test program runs native == sandbox, saved and loaded every
+frame, moved to a new sandbox and rewound (the nds: and dsi: tests, now on
+the recompiler); nds:cpu holds that the interpreter is another run and still
+native == sandbox. New Super Mario Bros., its first 1800 frames in the
+sandbox: 4.9 s on the recompiler, 7.5 s on the interpreter. The DSi's own
+system reaches its menu some 20 frames sooner on the recompiler, which made
+dsi:menu sample too coarsely; it reports every 10 frames now.
+
 ## Not done, and why
 
 - **The GBA slot** (a GBA cartridge beside the DS game, the rumble and

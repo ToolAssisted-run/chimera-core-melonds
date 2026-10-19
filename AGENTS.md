@@ -17,7 +17,8 @@ design log, with what was decided, why, and what was measured.
 - `extern/melonDS` - melonDS at its release 1.1, a submodule. Never edited
   in place: a change is a numbered patch in `patches/`, laid over the
   submodule by `waterbox/apply-patches.sh` and written by
-  `waterbox/make-patches.sh`. There is none so far.
+  `waterbox/make-patches.sh`. One so far: 0001 runs the ARM recompiler
+  with no fast memory (no shared memory file, no fault handler).
 - `meson.build` - the build of both flavors, with melonDS's files listed by
   hand from its own `src/CMakeLists.txt`.
 - `waterbox/cinterface.cpp` - the functions Chimera's engine calls, over
