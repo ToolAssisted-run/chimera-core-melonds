@@ -4,10 +4,10 @@
  ],
  "AllTrollers": {
   "Nintendo DS Controls": {
-   "Up": "Up, J1 POV1U, X1 DpadUp, X1 LStickUp",
-   "Down": "Down, J1 POV1D, X1 DpadDown, X1 LStickDown",
-   "Left": "Left, J1 POV1L, X1 DpadLeft, X1 LStickLeft",
-   "Right": "Right, J1 POV1R, X1 DpadRight, X1 LStickRight",
+   "Up": "Up, J1 POV0U, X1 DpadUp, X1 LStickUp",
+   "Down": "Down, J1 POV0D, X1 DpadDown, X1 LStickDown",
+   "Left": "Left, J1 POV0L, X1 DpadLeft, X1 LStickLeft",
+   "Right": "Right, J1 POV0R, X1 DpadRight, X1 LStickRight",
    "Start": "Enter, J1 B10, X1 Start",
    "Select": "Space, J1 B9, X1 Back",
    "B": "Z, J1 B1, X1 A",
@@ -20,10 +20,10 @@
    "Lid Closed": ""
   },
   "Nintendo DSi Controls": {
-   "Up": "Up, J1 POV1U, X1 DpadUp, X1 LStickUp",
-   "Down": "Down, J1 POV1D, X1 DpadDown, X1 LStickDown",
-   "Left": "Left, J1 POV1L, X1 DpadLeft, X1 LStickLeft",
-   "Right": "Right, J1 POV1R, X1 DpadRight, X1 LStickRight",
+   "Up": "Up, J1 POV0U, X1 DpadUp, X1 LStickUp",
+   "Down": "Down, J1 POV0D, X1 DpadDown, X1 LStickDown",
+   "Left": "Left, J1 POV0L, X1 DpadLeft, X1 LStickLeft",
+   "Right": "Right, J1 POV0R, X1 DpadRight, X1 LStickRight",
    "Start": "Enter, J1 B10, X1 Start",
    "Select": "Space, J1 B9, X1 Back",
    "B": "Z, J1 B1, X1 A",
