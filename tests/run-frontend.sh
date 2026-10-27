@@ -1,6 +1,6 @@
 #!/bin/bash
-# The package in Chimera's own window (Chimera.exe under Mono, on a private
-# Xvfb display), which the headless runner cannot show:
+# The package in Chimera's own window (run headless, no
+# display), which the headless runner cannot show:
 #  - the test program (tests/make-nds-program.py) runs in the window and
 #    leaves the Main RAM the headless runner leaves at the same frame, with
 #    the two screens as one picture of 256x384;
@@ -17,7 +17,7 @@
 #
 # Usage: tests/run-frontend.sh --chimera-root <chimera checkout> [--frames N] [--keep]
 #   --keep   leave the work folder (logs, configurations, projects) and say where it is
-# Needs: mono, Xvfb, Chimera built with its window (dotnet build), and the
+# Needs: Chimera built with its window (its tools/ci-chimera.sh), and the
 # package installed in that checkout (waterbox/build-package.sh -r <chimera>).
 set -u
 
@@ -49,41 +49,30 @@ bios9i="${DSI_BIOS9:-$here/roms-local/bios9i.bin}"
 dsifirmware="${DSI_FIRMWARE:-$here/roms-local/dsi_firmware.bin}"
 dsinand="${DSI_NAND:-$here/roms-local/dsi_nand.bin}"
 
-emu_exe="$chimera_root/build/Chimera.exe"
+chimera_exe="$chimera_root/build/meson-linux/source/ui/chimera"
 package="$chimera_root/build/Cores/melonds.chimeraCore"
 runwbx="$root/build/meson-native/run-wbx"
 core="$root/build/meson-guest/core.wbx"
 runner="$chimera_root/build/meson-linux/chimera-run"
-[ -f "$emu_exe" ] || { echo "Chimera's window is not built: $emu_exe" >&2; exit 1; }
+[ -x "$chimera_exe" ] || { echo "Chimera's window is not built: $chimera_exe" >&2; exit 1; }
 [ -f "$package" ] || { echo "the package is not installed: $package (run waterbox/build-package.sh -r $chimera_root)" >&2; exit 1; }
 [ -x "$runwbx" ] && [ -f "$core" ] || { echo "the sandbox build is not there: $runwbx, $core" >&2; exit 1; }
 [ -x "$runner" ] || { echo "Chimera's headless runner is not built: $runner" >&2; exit 1; }
 
 work="$(mktemp -d)"
-xvfb_pid=""
 cleanup() {
-	[ -n "$xvfb_pid" ] && kill "$xvfb_pid" 2>/dev/null
 	if [ -n "$keep" ]; then echo "work folder kept: $work"; else rm -rf "$work"; fi
 }
 trap cleanup EXIT
 
+# Chimera's window, run headless (it needs no display): the cores installed in
+# the checkout, its settings, cache and recovery files the run's own, and
+# nothing carried over from a Chimera installed on this machine
+# the native test runner (run-wbx) needs miniBox's library, which Chimera's build holds
 export LD_LIBRARY_PATH="$chimera_root/build/dll:$chimera_root/build:/usr/lib/x86_64-linux-gnu"
-export MONO_CRASH_NOFILE=1 MONO_WINFORMS_XIM_STYLE=disabled ALSOFT_DRIVERS=null
-# always a display of this test's own: nobody's desktop is drawn on
-command -v Xvfb >/dev/null || { echo "Xvfb not found (apt install xvfb)" >&2; exit 1; }
-for n in 90 91 92 93 94 95 96; do
-	if [ ! -e "/tmp/.X11-unix/X$n" ]; then
-		Xvfb ":$n" -screen 0 1024x768x24 -nolisten tcp > /dev/null 2>&1 & xvfb_pid=$!
-		export DISPLAY=":$n"; break
-	fi
-done
-[ -n "$xvfb_pid" ] || { echo "no free display number for Xvfb" >&2; exit 1; }
-sleep 1
+export ALSOFT_DRIVERS=null CHIMERA_CORES_DIR="$chimera_root/build/Cores" CHIMERA_QT_CACHE="$work/qt-cache" CHIMERA_QT_RECOVERY="$work/qt-recovery" \
+	CHIMERA_QT_HASHES="$work/qt-file-hashes.txt" CHIMERA_QT_CHIMERA_SETTINGS="$work/no-chimera-config.ini"
 
-config="$work/config.ini"
-( cd "$chimera_root" && timeout 120 mono "$emu_exe" --headless "--config=$config" "--lua=$here/exit.lua" ) > "$work/bootstrap.log" 2>&1
-[ -f "$config" ] || { echo "Chimera did not write a configuration:"; tail -5 "$work/bootstrap.log"; exit 1; } >&2
-sed -i 's/"DispMethod": [0-9]/"DispMethod": 1/' "$config"
 
 ok=0
 failed=0
@@ -114,13 +103,13 @@ run_frontend() {
 		echo "shot="
 		echo "domain=$domain"
 	} > "$job"
-	( cd "$chimera_root" && MINIHAWK_JOB="$job" timeout 900 mono "$emu_exe" --headless \
-		"--config=$cfg" "--project=$work/$tag/$tag.chimeraProject" "--lua=$here/frontend-ram.lua" ) >> "$work/$tag.log" 2>&1
+	( cd "$chimera_root" && MINIHAWK_JOB="$job" timeout -s KILL 900 "$chimera_exe" --headless \
+		"--config=$cfg" "--project=$work/$tag/$tag.chimeraProject" "--lua=$here/${lua_script:-frontend-ram.lua}" ) >> "$work/$tag.log" 2>&1
 	[ -f "$work/$tag.meta.txt" ] && grep -q "^status=OK" "$work/$tag.meta.txt"
 }
 value() { sed -n "s/^$2=//p" "$work/$1.meta.txt" 2>/dev/null; }
 
-python3 "$here/settings-config.py" "$config" "$work/config.base.ini" '{}'
+python3 "$here/settings-config.py" "$work/settings.base.json" '{}'
 
 # ---- the test program: needs no file of anyone's
 mkdir -p "$work/prog" "$work/probe"
@@ -132,7 +121,7 @@ printf '{"cart":["chimera-test.nds"],"savedata":[]}' > "$work/probe/slots"; prin
 make_project ds $((frames + 100)) "$work/prog/chimera-test.nds" "press=A:100:$frames"
 "$runner" --project "$work/ds/ds.chimeraProject" "$package" --files "$work/ds" --frames "$frames" \
 	--dump "Main RAM=$work/engine.ram.bin" > "$work/engine.log" 2>&1
-if ! run_frontend ds "$work/config.base.ini" "$frames" "Main RAM"; then
+if ! run_frontend ds "$work/settings.base.json" "$frames" "Main RAM"; then
 	report "window:nds" FAIL "Chimera did not finish the run: $(value ds detail) $(tail -2 "$work/ds.log" | tr '\n' ' ' | cut -c1-200)"
 elif [ "$(value ds frames)" != "$frames" ] || [ "$(value ds width)" != 256 ] || [ "$(value ds height)" != 384 ]; then
 	report "window:nds" FAIL "frames $(value ds frames) of $frames, picture $(value ds width)x$(value ds height) and not 256x384"
@@ -142,10 +131,9 @@ else
 	report "window:nds" FAIL "the Main RAM differs from the headless runner's (or one of the two is missing)"
 fi
 
-python3 "$here/forget-controller.py" "$work/config.base.ini" "$work/config.keys.ini" "Nintendo DS Controls"
 mkdir -p "$work/keys"; cp "$work/ds/chimera-test.nds" "$work/keys/"; sed 's/"melonds-test-[^"]*"/"melonds-test-keys"/' "$work/ds/ds.chimeraProject" > "$work/keys/keys.chimeraProject"
-if run_frontend keys "$work/config.keys.ini" 1 ""; then
-	if python3 "$here/check-keybinds.py" "$work/config.keys.ini" "$wb/default_keybinds.json" "Nintendo DS Controls" "A" > "$work/keys.txt" 2>&1; then
+if lua_script=dump-controls.lua run_frontend keys "$work/settings.keys.json" 1 ""; then
+	if python3 "$here/check-keybinds.py" "$work/keys.ram.bin" "$wb/default_keybinds.json" "Nintendo DS Controls" "A" > "$work/keys.txt" 2>&1; then
 		report "window:keys" PASS "$(cat "$work/keys.txt")"
 	else
 		report "window:keys" FAIL "$(head -1 "$work/keys.txt")"
@@ -164,7 +152,7 @@ else
 	make_project gm $((frames + 100)) "$nds"
 	"$runner" --project "$work/gm/gm.chimeraProject" "$package" --files "$work/gm" --frames "$frames" \
 		--dump "Main RAM=$work/gm-engine.ram.bin" > "$work/gm-engine.log" 2>&1
-	if ! run_frontend gm "$work/config.base.ini" "$frames" "Main RAM"; then
+	if ! run_frontend gm "$work/settings.base.json" "$frames" "Main RAM"; then
 		report "window:game" FAIL "Chimera did not finish the run: $(value gm detail) $(tail -2 "$work/gm.log" | tr '\n' ' ' | cut -c1-200)"
 	elif [ "$(value gm frames)" = "$frames" ] && [ -s "$work/gm-engine.ram.bin" ] && cmp -s "$work/gm-engine.ram.bin" "$work/gm.ram.bin"; then
 		report "window:game" PASS "a project of the game ran $frames frames in the window, $(value gm width)x$(value gm height), and left the Main RAM the headless runner leaves"
@@ -181,16 +169,16 @@ else
 		cp "$bios7" "$fwdir/bios7.bin"; cp "$bios9" "$fwdir/bios9.bin"; cp "$firmware" "$fwdir/firmware.bin"
 		fw=("firmware=bios7.bin=$fwdir/bios7.bin" "firmware=bios9.bin=$fwdir/bios9.bin" "firmware=firmware.bin=$fwdir/firmware.bin")
 		make_project menunofw 100 "$nds" bios=original boot=firmware "${fw[@]}"
-		if run_frontend menunofw "$work/config.base.ini" 1 ""; then
+		if run_frontend menunofw "$work/settings.base.json" 1 ""; then
 			report "window:refusal" FAIL "the project opened without the console's files"
 		elif grep -q "bios7.bin\|bios9.bin\|firmware.bin" "$work/menunofw.log"; then
 			report "window:refusal" PASS "without the firmware the project is not opened, and a file is named: $(grep -o "[^.]*\(bios7\|bios9\|firmware\)\.bin[^.]*" "$work/menunofw.log" | head -1 | cut -c1-120)"
 		else
 			report "window:refusal" FAIL "refused, but no file is named: $(tail -2 "$work/menunofw.log" | tr '\n' ' ' | cut -c1-200)"
 		fi
-		python3 "$here/settings-config.py" "$config" "$work/config.fw.ini" '{}' "{\"bios7.bin\": \"$fwdir/bios7.bin\", \"bios9.bin\": \"$fwdir/bios9.bin\", \"firmware.bin\": \"$fwdir/firmware.bin\"}"
+		python3 "$here/settings-config.py" "$work/settings.fw.json" '{}' "{\"bios7.bin\": \"$fwdir/bios7.bin\", \"bios9.bin\": \"$fwdir/bios9.bin\", \"firmware.bin\": \"$fwdir/firmware.bin\"}"
 		make_project menu $((frames + 100)) "$nds" bios=original boot=firmware "${fw[@]}"
-		if ! run_frontend menu "$work/config.fw.ini" "$frames" ""; then
+		if ! run_frontend menu "$work/settings.fw.json" "$frames" ""; then
 			report "window:bios" FAIL "Chimera did not finish the run: $(value menu detail) $(tail -2 "$work/menu.log" | tr '\n' ' ' | cut -c1-200)"
 		elif [ "$(value menu frames)" = "$frames" ]; then
 			report "window:bios" PASS "a project that starts from the console's menu opened with the console's three files from Chimera's firmware and ran $frames frames in the window"
@@ -208,12 +196,12 @@ if [ -z "$dsi" ] || [ ! -f "$bios7i" ] || [ ! -f "$bios9i" ] || [ ! -f "$dsifirm
 else
 	# the files are named in place: the NAND image is a quarter of a gigabyte
 	fw=("firmware=bios7i.bin=$bios7i" "firmware=bios9i.bin=$bios9i" "firmware=dsi_firmware.bin=$dsifirmware" "firmware=dsi_nand.bin=$dsinand")
-	python3 "$here/settings-config.py" "$config" "$work/config.dsi.ini" '{}' "{\"bios7i.bin\": \"$bios7i\", \"bios9i.bin\": \"$bios9i\", \"dsi_firmware.bin\": \"$dsifirmware\", \"dsi_nand.bin\": \"$dsinand\"}"
+	python3 "$here/settings-config.py" "$work/settings.dsi.json" '{}' "{\"bios7i.bin\": \"$bios7i\", \"bios9i.bin\": \"$bios9i\", \"dsi_firmware.bin\": \"$dsifirmware\", \"dsi_nand.bin\": \"$dsinand\"}"
 	make_project dsi $((frames + 100)) "$dsi" machine=dsi "${fw[@]}"
 	"$runner" --project "$work/dsi/dsi.chimeraProject" "$package" --files "$work/dsi" --frames "$frames" \
 		--firmware "bios7i.bin=$bios7i" --firmware "bios9i.bin=$bios9i" --firmware "dsi_firmware.bin=$dsifirmware" --firmware "dsi_nand.bin=$dsinand" \
 		--dump "Main RAM=$work/dsi-engine.ram.bin" > "$work/dsi-engine.log" 2>&1
-	if ! run_frontend dsi "$work/config.dsi.ini" "$frames" "Main RAM"; then
+	if ! run_frontend dsi "$work/settings.dsi.json" "$frames" "Main RAM"; then
 		report "window:dsi" FAIL "Chimera did not finish the run: $(value dsi detail) $(tail -2 "$work/dsi.log" | tr '\n' ' ' | cut -c1-200)"
 	elif [ "$(value dsi frames)" = "$frames" ] && [ -s "$work/dsi-engine.ram.bin" ] && cmp -s "$work/dsi-engine.ram.bin" "$work/dsi.ram.bin"; then
 		report "window:dsi" PASS "a DSi project opened with the DSi's four files from Chimera's firmware, ran $frames frames in the window and left the Main RAM ($(wc -c < "$work/dsi.ram.bin") bytes) the headless runner leaves"
