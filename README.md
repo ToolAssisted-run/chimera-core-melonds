@@ -4,7 +4,7 @@ A core for [Chimera](https://github.com/ToolAssisted-run/chimera), the
 frontend for tool-assisted speedruns, for the **Nintendo DS** and the
 **Nintendo DSi**. It is built on [melonDS](https://melonds.kuribo64.net/)
 1.1 and produces one file, `melonds.chimeraCore`, that goes in Chimera's
-`Cores` folder.
+`cores` folder.
 
 ## Status
 
