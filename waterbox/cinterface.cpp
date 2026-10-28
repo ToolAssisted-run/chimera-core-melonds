@@ -41,6 +41,11 @@ using namespace melonDS;
 namespace
 {
 
+/* A text a person reads is a key of languages/en.json, each of its
+ * arguments after a TEXT_ARG (chimera docs/translations.md). TEXT_ARG is a
+ * string of its own so the byte after it is never read as more of its hex. */
+#define TEXT_ARG "\x1f"
+
 char g_loadError[1024];
 NDS *g_nds;
 bool g_stopped;
@@ -289,17 +294,17 @@ bool load_dsi_files(NDSArgs &args, std::unique_ptr<DSiBIOSImage> &arm9i, std::un
 	if (!read_file("bios7i.bin", bios7i) || bios7i.size() != DSiBIOSSize
 		|| !read_file("bios9i.bin", bios9i) || bios9i.size() != DSiBIOSSize)
 	{
-		snprintf(g_loadError, sizeof g_loadError, "the DSi's BIOS files could not be read: bios7i.bin and bios9i.bin have to be %u bytes each", unsigned(DSiBIOSSize));
+		snprintf(g_loadError, sizeof g_loadError, "error.dsi_bios" TEXT_ARG "%u", unsigned(DSiBIOSSize));
 		return false;
 	}
 	if (!read_file("dsi_firmware.bin", firmware) || firmware.empty())
 	{
-		snprintf(g_loadError, sizeof g_loadError, "the DSi's firmware file (dsi_firmware.bin) could not be read");
+		snprintf(g_loadError, sizeof g_loadError, "error.dsi_firmware_read");
 		return false;
 	}
 	if (!read_file(kNandName, g_nand) || g_nand.empty())
 	{
-		snprintf(g_loadError, sizeof g_loadError, "the DSi's NAND image (dsi_nand.bin) could not be read");
+		snprintf(g_loadError, sizeof g_loadError, "error.dsi_nand_read");
 		return false;
 	}
 	arm7i = std::make_unique<DSiBIOSImage>();
@@ -309,14 +314,14 @@ bool load_dsi_files(NDSArgs &args, std::unique_ptr<DSiBIOSImage> &arm9i, std::un
 	args.Firmware = Firmware(firmware.data(), u32(firmware.size()));
 	if (!args.Firmware.Buffer())
 	{
-		snprintf(g_loadError, sizeof g_loadError, "dsi_firmware.bin is not a DSi firmware");
+		snprintf(g_loadError, sizeof g_loadError, "error.dsi_firmware");
 		return false;
 	}
 	// the key the NAND is encrypted with is in the second processor's BIOS
 	DSi_NAND::NANDImage nand(Platform::OpenFile(kNandName, Platform::FileMode::ReadWriteExisting), &bios7i[0x8308]);
 	if (!nand)
 	{
-		snprintf(g_loadError, sizeof g_loadError, "dsi_nand.bin is not a DSi NAND image, or not one with its console's footer (\"DSi eMMC CID/CPU\") at the end");
+		snprintf(g_loadError, sizeof g_loadError, "error.dsi_nand");
 		return false;
 	}
 	{
@@ -324,7 +329,7 @@ bool load_dsi_files(NDSArgs &args, std::unique_ptr<DSiBIOSImage> &arm9i, std::un
 		DSi_NAND::DSiFirmwareSystemSettings user {};
 		if (!mount || !mount.ReadUserData(user))
 		{
-			snprintf(g_loadError, sizeof g_loadError, "the DSi's NAND image could not be read with this BIOS: the two have to come from the same console");
+			snprintf(g_loadError, sizeof g_loadError, "error.dsi_pair");
 			return false;
 		}
 		user.Language = Firmware::Language(chosen_language());
@@ -341,7 +346,7 @@ bool load_dsi_files(NDSArgs &args, std::unique_ptr<DSiBIOSImage> &arm9i, std::un
 		DSi_NAND::DSiFirmwareSystemSettings user {};
 		if (!mount || !mount.ReadUserData(user) || int(user.Language) != chosen_language() || user.TouchCalibrationADC2[0] != (255 << 4))
 		{
-			snprintf(g_loadError, sizeof g_loadError, "the DSi's settings could not be written into the copy of its NAND image");
+			snprintf(g_loadError, sizeof g_loadError, "error.dsi_settings");
 			return false;
 		}
 	}
@@ -386,13 +391,13 @@ ECL_EXPORT int Init(void)
 	if (files.empty() && !lone_rom().empty()) files.push_back(lone_rom());
 	if (files.empty())
 	{
-		snprintf(g_loadError, sizeof g_loadError, "no game was given");
+		snprintf(g_loadError, sizeof g_loadError, "error.no_file");
 		return 0;
 	}
 	std::vector<uint8_t> rom;
 	if (!read_file(files[0], rom) || rom.empty())
 	{
-		snprintf(g_loadError, sizeof g_loadError, "the game's file could not be read: %s", files[0].c_str());
+		snprintf(g_loadError, sizeof g_loadError, "error.not_read" TEXT_ARG "%s", files[0].c_str());
 		return 0;
 	}
 
@@ -409,7 +414,7 @@ ECL_EXPORT int Init(void)
 	std::unique_ptr<NDSCart::CartCommon> cart = NDSCart::ParseROM(rom.data(), u32(rom.size()), nullptr, std::move(cartArgs));
 	if (!cart)
 	{
-		snprintf(g_loadError, sizeof g_loadError, "%s is not a Nintendo DS cartridge", files[0].c_str());
+		snprintf(g_loadError, sizeof g_loadError, "error.not_cart" TEXT_ARG "%s", files[0].c_str());
 		return 0;
 	}
 
@@ -421,7 +426,7 @@ ECL_EXPORT int Init(void)
 	setting_text("machine", machine);
 	if (machine != "nds" && machine != "dsi")
 	{
-		snprintf(g_loadError, sizeof g_loadError, "unknown machine \"%s\"", machine.c_str());
+		snprintf(g_loadError, sizeof g_loadError, "error.bad_machine" TEXT_ARG "%s", machine.c_str());
 		return 0;
 	}
 	g_dsi = machine == "dsi";
@@ -435,7 +440,7 @@ ECL_EXPORT int Init(void)
 	setting_text("cpu", cpu);
 	if (cpu != "jit" && cpu != "interpreter")
 	{
-		snprintf(g_loadError, sizeof g_loadError, "unknown CPU \"%s\"", cpu.c_str());
+		snprintf(g_loadError, sizeof g_loadError, "error.bad_cpu" TEXT_ARG "%s", cpu.c_str());
 		return 0;
 	}
 	if (cpu == "jit")
@@ -454,7 +459,7 @@ ECL_EXPORT int Init(void)
 		if (!read_file("bios7.bin", bios7) || bios7.size() != ARM7BIOSSize
 			|| !read_file("bios9.bin", bios9) || bios9.size() != ARM9BIOSSize)
 		{
-			snprintf(g_loadError, sizeof g_loadError, "the console's BIOS files could not be read: bios7.bin has to be %u bytes and bios9.bin %u", unsigned(ARM7BIOSSize), unsigned(ARM9BIOSSize));
+			snprintf(g_loadError, sizeof g_loadError, "error.bios" TEXT_ARG "%u" TEXT_ARG "%u", unsigned(ARM7BIOSSize), unsigned(ARM9BIOSSize));
 			return 0;
 		}
 		memcpy(args.ARM7BIOS->data(), bios7.data(), ARM7BIOSSize);
@@ -464,20 +469,20 @@ ECL_EXPORT int Init(void)
 			// (a DSi has its own firmware: load_dsi_files)
 			if (!read_file("firmware.bin", firmware) || firmware.empty())
 			{
-				snprintf(g_loadError, sizeof g_loadError, "the console's firmware file (firmware.bin) could not be read");
+				snprintf(g_loadError, sizeof g_loadError, "error.firmware_read");
 				return 0;
 			}
 			args.Firmware = Firmware(firmware.data(), u32(firmware.size()));
 			if (!args.Firmware.Buffer())
 			{
-				snprintf(g_loadError, sizeof g_loadError, "firmware.bin is not a Nintendo DS firmware: it has to be 128, 256 or 512 KB");
+				snprintf(g_loadError, sizeof g_loadError, "error.firmware");
 				return 0;
 			}
 		}
 	}
 	else if (boot == "firmware" && !g_dsi)
 	{
-		snprintf(g_loadError, sizeof g_loadError, "starting from the console's menu needs the console's own BIOS: set BIOS to 'original', or Start With to 'game'");
+		snprintf(g_loadError, sizeof g_loadError, "error.menu_needs_bios");
 		return 0;
 	}
 	std::unique_ptr<DSiBIOSImage> arm9i, arm7i;

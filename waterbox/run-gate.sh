@@ -261,15 +261,15 @@ check "nds:pen-layouts" "the place of the lower screen's pixel 192,48 in each pi
 mkdir -p "$work/none"
 printf '{"cart":[],"savedata":[]}' > "$work/none/slots"; printf '{}' > "$work/none/settings"
 nat none none --frames 1
-check "refused:no-game" "a console with no game is refused, and says so" grep -q "Init failed.*no game was given" "$work/none.out" "$work/none.err"
+check "refused:no-game" "a console with no game is refused, and says so" grep -q "Init failed.*error.no_file" "$work/none.out" "$work/none.err"
 folder nomenu '{"boot":"firmware"}' "$prog"
 nat nomenu nomenu --frames 1
 check "refused:menu-needs-bios" "starting from the console's menu with the free BIOS is refused, and the message says which setting to change" \
-	grep -q "Init failed.*needs the console's own BIOS" "$work/nomenu.out" "$work/nomenu.err"
+	grep -q "Init failed.*error.menu_needs_bios" "$work/nomenu.out" "$work/nomenu.err"
 folder nobios '{"bios":"original"}' "$prog"
 nat nobios nobios --frames 1
 check "refused:bios-missing" "with the BIOS setting on 'original' and no BIOS files the console is refused, by the files' names" \
-	grep -q "Init failed.*bios7\.bin" "$work/nobios.out" "$work/nobios.err"
+	grep -q "Init failed.*error.bios" "$work/nobios.out" "$work/nobios.err"
 
 # ------------------------------------------------- a game
 nds="$(ls "$game"/*.nds 2> /dev/null | head -1)"
@@ -408,7 +408,7 @@ if [ -n "$dsi" ] && [ -f "$bios7i" ] && [ -f "$bios9i" ] && [ -f "$dsifirmware" 
 	folder di-none '{"machine":"dsi"}' "$dsi"
 	nat di-none di-none --frames 1
 	check "dsi:files-missing" "a DSi without its files is refused, by the files' names" \
-		grep -q "Init failed.*bios7i\.bin" "$work/di-none.out" "$work/di-none.err"
+		grep -q "Init failed.*error.dsi_bios" "$work/di-none.out" "$work/di-none.err"
 else
 	for t in runs pad sandbox state-every-frame state-other-box state-rewind menu nand-untouched files-missing; do
 		report "dsi:$t" SKIP "no DSi game with a DSi's BIOS files, firmware and NAND image (DSI_GAME, DSI_BIOS7, DSI_BIOS9, DSI_FIRMWARE, DSI_NAND)"
