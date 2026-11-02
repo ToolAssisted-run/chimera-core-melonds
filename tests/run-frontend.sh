@@ -131,7 +131,7 @@ else
 	report "window:nds" FAIL "the Main RAM differs from the headless runner's (or one of the two is missing)"
 fi
 
-mkdir -p "$work/keys"; cp "$work/ds/chimera-test.nds" "$work/keys/"; sed 's/"melonds-test-[^"]*"/"melonds-test-keys"/' "$work/ds/ds.chimeraProject" > "$work/keys/keys.chimeraProject"
+mkdir -p "$work/keys"; cp "$work/ds/chimera-test.nds" "$work/keys/"; python3 -c 'import json, sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); d = json.loads(z.read("project.json")); d["id"] = sys.argv[3]; o = zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_DEFLATED); o.writestr("project.json", json.dumps(d, indent="\t")); [o.writestr(n, z.read(n)) for n in z.namelist() if n != "project.json"]; o.close()' "$work/ds/ds.chimeraProject" "$work/keys/keys.chimeraProject" melonds-test-keys
 if lua_script=dump-controls.lua run_frontend keys "$work/settings.keys.json" 1 ""; then
 	if python3 "$here/check-keybinds.py" "$work/keys.ram.bin" "$wb/default_keybinds.json" "Nintendo DS Controls" "A" > "$work/keys.txt" 2>&1; then
 		report "window:keys" PASS "$(cat "$work/keys.txt")"
