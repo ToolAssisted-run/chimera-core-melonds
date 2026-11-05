@@ -32,6 +32,9 @@ chimera_root="$(cd "$chimera_root" && pwd)"
 sh "$here/apply-patches.sh"
 [ -f "$root/build/meson-guest/build.ninja" ] || sh "$here/setup-guest.sh" -m "$mb"
 ninja -C "$root/build/meson-guest" core.wbx
+# where the code reads its thread pointer, listed in the image: an Intel Mac
+# rewrites those reads as the core loads (miniBox's wbx-tp-rewrite.py)
+python3 "$mb/source/guest/wbx-tp-rewrite.py" "$root/build/meson-guest/core.wbx"
 sh "$mb/source/guest/check-wbx.sh" "$root/build/meson-guest/core.wbx"
 
 staging="$root/build/package-staging"
